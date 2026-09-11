@@ -108,10 +108,11 @@ export const VPSMasterHubView: React.FC = () => {
     currentUser,
     radiusServer,
     setRadiusServer,
+    updateRadiusServerConfig,
   } = useApp();
 
   const isDark = theme === 'dark';
-  const currentVpsIp = radiusServer?.ip || '103.187.99.50';
+  const currentVpsIp = radiusServer?.ip || '103.49.239.150';
 
   // State modal edit VPS & Host
   const [isEditVpsModalOpen, setIsEditVpsModalOpen] = useState(false);
@@ -120,15 +121,15 @@ export const VPSMasterHubView: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [vpsFormData, setVpsFormData] = useState({
-    ip: radiusServer?.ip || '103.187.99.50',
-    hostname: radiusServer?.hostname || 'vps-master.masmedianet.id',
-    secret: radiusServer?.secret || 'masmedia123',
+    ip: radiusServer?.ip || '103.49.239.150',
+    hostname: radiusServer?.hostname || 'masmedianet.my.id',
+    secret: radiusServer?.secret || 'MasmediaSecret2026',
     authPort: radiusServer?.authPort || 1812,
     acctPort: radiusServer?.acctPort || 1813,
     wireguardPort: radiusServer?.wireguardPort || 51820,
     sstpPort: radiusServer?.sstpPort || 443,
     apiPort: radiusServer?.apiPort || 8728,
-    location: radiusServer?.location || 'Jakarta Cyber IDC (DC-01)',
+    location: radiusServer?.location || 'IDCloudHost Jakarta',
   });
 
   const handleSaveVpsConfig = (e: React.FormEvent) => {
@@ -137,8 +138,7 @@ export const VPSMasterHubView: React.FC = () => {
     const cleanSecret = vpsFormData.secret.trim();
     const cleanHostname = vpsFormData.hostname.trim();
 
-    setRadiusServer(prev => ({
-      ...prev,
+    const newConfig = {
       ip: cleanIp,
       hostname: cleanHostname,
       secret: cleanSecret,
@@ -148,7 +148,23 @@ export const VPSMasterHubView: React.FC = () => {
       sstpPort: Number(vpsFormData.sstpPort),
       apiPort: Number(vpsFormData.apiPort),
       location: vpsFormData.location.trim(),
-    }));
+    };
+
+    if (typeof setRadiusServer === 'function') {
+      setRadiusServer(prev => ({
+        ...prev,
+        ...newConfig,
+      }));
+    }
+
+    if (typeof updateRadiusServerConfig === 'function') {
+      updateRadiusServerConfig({
+        serverHost: cleanIp,
+        sharedSecret: cleanSecret,
+        authPort: Number(vpsFormData.authPort),
+        acctPort: Number(vpsFormData.acctPort),
+      });
+    }
 
     setIsEditVpsModalOpen(false);
     setToastMessage(`Berhasil! Server VPS dihubungkan ke IP: ${cleanIp}`);
@@ -387,15 +403,15 @@ export const VPSMasterHubView: React.FC = () => {
             type="button"
             onClick={() => {
               setVpsFormData({
-                ip: radiusServer?.ip || '103.187.99.50',
-                hostname: radiusServer?.hostname || 'vps-master.masmedianet.id',
-                secret: radiusServer?.secret || 'masmedia123',
+                ip: radiusServer?.ip || '103.49.239.150',
+                hostname: radiusServer?.hostname || 'masmedianet.my.id',
+                secret: radiusServer?.secret || 'MasmediaSecret2026',
                 authPort: radiusServer?.authPort || 1812,
                 acctPort: radiusServer?.acctPort || 1813,
                 wireguardPort: radiusServer?.wireguardPort || 51820,
                 sstpPort: radiusServer?.sstpPort || 443,
                 apiPort: radiusServer?.apiPort || 8728,
-                location: radiusServer?.location || 'Jakarta Cyber IDC (DC-01)',
+                location: radiusServer?.location || 'IDCloudHost Jakarta',
               });
               setIsEditVpsModalOpen(true);
             }}
@@ -500,15 +516,15 @@ export const VPSMasterHubView: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setVpsFormData({
-                    ip: radiusServer?.ip || '103.187.99.50',
-                    hostname: radiusServer?.hostname || 'vps-master.masmedianet.id',
-                    secret: radiusServer?.secret || 'masmedia123',
+                    ip: radiusServer?.ip || '103.49.239.150',
+                    hostname: radiusServer?.hostname || 'masmedianet.my.id',
+                    secret: radiusServer?.secret || 'MasmediaSecret2026',
                     authPort: radiusServer?.authPort || 1812,
                     acctPort: radiusServer?.acctPort || 1813,
                     wireguardPort: radiusServer?.wireguardPort || 51820,
                     sstpPort: radiusServer?.sstpPort || 443,
                     apiPort: radiusServer?.apiPort || 8728,
-                    location: radiusServer?.location || 'Jakarta Cyber IDC (DC-01)',
+                    location: radiusServer?.location || 'IDCloudHost Jakarta',
                   });
                   setIsEditVpsModalOpen(true);
                 }}

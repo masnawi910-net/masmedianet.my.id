@@ -188,6 +188,28 @@ interface AppContextType {
   deleteVPN: (id: string) => void;
   radiusServerConfig: RadiusServerConfig;
   updateRadiusServerConfig: (updates: Partial<RadiusServerConfig>) => void;
+  radiusServer: {
+    ip: string;
+    hostname: string;
+    secret: string;
+    authPort: number;
+    acctPort: number;
+    wireguardPort: number;
+    sstpPort: number;
+    apiPort: number;
+    location: string;
+  };
+  setRadiusServer: React.Dispatch<React.SetStateAction<{
+    ip: string;
+    hostname: string;
+    secret: string;
+    authPort: number;
+    acctPort: number;
+    wireguardPort: number;
+    sstpPort: number;
+    apiPort: number;
+    location: string;
+  }>>;
 
   // Expenses & Finance
   expenses: Expense[];
@@ -326,6 +348,7 @@ const STORAGE_KEYS = {
   CURRENT_TENANT: 'netradius_current_tenant_v2',
   ACTIVITY_LOGS: 'netradius_activity_logs_v2',
   COMMAND_QUEUE: 'netradius_command_queue_v2',
+  VPS_RADIUS_SERVER: 'netradius_vps_radius_server_v2',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -829,6 +852,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.RADIUS_CONFIG);
     return saved ? JSON.parse(saved) : initialRadiusServerConfig;
   });
+
+  const [radiusServer, setRadiusServer] = useState<{
+    ip: string;
+    hostname: string;
+    secret: string;
+    authPort: number;
+    acctPort: number;
+    wireguardPort: number;
+    sstpPort: number;
+    apiPort: number;
+    location: string;
+  }>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.VPS_RADIUS_SERVER);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {
+      ip: '103.49.239.150',
+      hostname: 'masmedianet.my.id',
+      secret: 'MasmediaSecret2026',
+      authPort: 1812,
+      acctPort: 1813,
+      wireguardPort: 51820,
+      sstpPort: 443,
+      apiPort: 8728,
+      location: 'IDCloudHost Jakarta',
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.VPS_RADIUS_SERVER, JSON.stringify(radiusServer));
+    setRadiusServerConfig(prev => ({
+      ...prev,
+      serverHost: radiusServer.ip,
+      sharedSecret: radiusServer.secret,
+      authPort: radiusServer.authPort,
+      acctPort: radiusServer.acctPort,
+    }));
+  }, [radiusServer]);
 
   const [allExpenses, setAllExpenses] = useState<Expense[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.EXPENSES);
@@ -2868,6 +2934,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteVPN,
         radiusServerConfig,
         updateRadiusServerConfig,
+        radiusServer,
+        setRadiusServer,
 
         expenses,
         addExpense,
