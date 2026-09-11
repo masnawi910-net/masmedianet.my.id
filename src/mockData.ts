@@ -774,7 +774,29 @@ export const initialHotspotTemplates: HotspotTemplate[] = [
   },
 ];
 
-export const initialVPNConfigs: VPNConfig[] = [];
+export const initialVPNConfigs: VPNConfig[] = [
+  {
+    id: 'VPN-01',
+    name: 'Router Utama Masmedia',
+    type: 'wireguard',
+    serverAddress: '103.49.239.150',
+    username: 'masmedia_core',
+    password: 'wg_client_masmedia_2026',
+    remoteIp: '10.200.0.10',
+    localIp: '10.200.0.1',
+    clientIp: '10.200.0.10/24',
+    subnet: '10.200.0.0/24',
+    port: 51820,
+    remoteWinboxPort: 18291,
+    remoteWebPort: 18080,
+    status: 'connected',
+    uptime: '1d 14h',
+    rxBytes: 15400000,
+    txBytes: 8900000,
+    createdAt: '2026-09-11',
+    notes: 'Koneksi WireGuard Tunnel Pusat (Winbox Port 18291)',
+  },
+];
 
 export const initialRadiusServerConfig: RadiusServerConfig = {
   serverHost: '103.187.99.50 (VPS Masmedia FreeRADIUS v3.2)',

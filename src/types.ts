@@ -536,6 +536,14 @@ export interface VPNConfig {
   uptime: string;
   rxBytes?: number;
   txBytes?: number;
+  remoteWinboxPort?: number;
+  remoteWebPort?: number;
+  clientPublicKey?: string;
+  clientPrivateKey?: string;
+  clientPhone?: string;
+  notes?: string;
+  createdAt?: string;
+  expiresAt?: string;
 }
 
 export interface RadiusServerConfig {
