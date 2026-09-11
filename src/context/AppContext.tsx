@@ -70,7 +70,15 @@ import {
   initialCommandQueue,
 } from '../mockData';
 import { generateInvoiceNumber, getWhatsAppLink, replaceWhatsAppPlaceholders, formatRupiah } from '../utils/formatters';
-import { saveToIndexedDB, syncToCloudFirestore, loadFromCloudFirestore, testConnection, DatabaseBackupPayload } from '../services/databaseService';
+import {
+  saveToIndexedDB,
+  syncToCloudFirestore,
+  loadFromCloudFirestore,
+  testConnection,
+  isFirestoreQuotaExceeded,
+  resetFirestoreQuotaCooldown,
+  DatabaseBackupPayload,
+} from '../services/databaseService';
 
 interface AppContextType {
   // Multi-Tenant / SaaS Branches
@@ -310,7 +318,8 @@ interface AppContextType {
   cloudSyncStatus: 'synced' | 'syncing' | 'offline';
   lastCloudSync: string | null;
   isCloudReady: boolean;
-  syncNowToCloud: () => Promise<boolean>;
+  isCloudQuotaExceeded: boolean;
+  syncNowToCloud: (isManual?: boolean) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -992,12 +1001,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
   const [lastCloudSync, setLastCloudSync] = useState<string | null>(null);
   const [isCloudReady, setIsCloudReady] = useState<boolean>(false);
+  const [isCloudQuotaExceededState, setIsCloudQuotaExceededState] = useState<boolean>(() => isFirestoreQuotaExceeded());
   const isCloudRestoredRef = useRef<boolean>(false);
   const isSyncingRef = useRef<boolean>(false);
 
   // Auto-sync entire state snapshot to Cloud Firestore with debouncing
-  const syncNowToCloud = async (): Promise<boolean> => {
+  const syncNowToCloud = async (isManual = false): Promise<boolean> => {
     if (isSyncingRef.current) return false;
+
+    // Check if free tier quota is exhausted
+    if (isFirestoreQuotaExceeded() && !isManual) {
+      setIsCloudQuotaExceededState(true);
+      setCloudSyncStatus('offline');
+      return false;
+    }
+
+    if (isManual) {
+      resetFirestoreQuotaCooldown();
+      setIsCloudQuotaExceededState(false);
+    }
+
     isSyncingRef.current = true;
     setCloudSyncStatus('syncing');
     try {
@@ -1010,7 +1033,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           packages,
           invoices: allInvoices,
           nasList: allNasList,
-          activeSessions: allActiveSessions,
+          activeSessions: [], // Do not persist volatile sessions to cloud
           templates,
           isolirConfig,
           paymentChannels,
@@ -1031,28 +1054,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           paymentGatewayConfig,
           tickets: allTickets,
           fiberCables: allFiberCables,
-          activityLogs: allActivityLogs,
-          commandQueue: allCommandQueue,
+          activityLogs: allActivityLogs.slice(-100),
+          commandQueue: allCommandQueue.slice(-50),
           ispProfile,
           tenants,
         },
       };
 
-      // Also save to local IndexedDB backup
+      // Also save to local IndexedDB backup immediately
       saveToIndexedDB('snapshot_v2', payload);
 
-      // Save to Firebase Cloud Firestore (with redundant fallback keys)
+      // Save to Firebase Cloud Firestore (with circuit breaker)
       const ok = await syncToCloudFirestore(currentTenantId || 'tenant-masmedia', payload);
       if (ok) {
+        setIsCloudQuotaExceededState(false);
         setCloudSyncStatus('synced');
         setLastCloudSync(new Date().toLocaleTimeString('id-ID'));
         return true;
       } else {
+        if (isFirestoreQuotaExceeded()) {
+          setIsCloudQuotaExceededState(true);
+        }
         setCloudSyncStatus('offline');
         return false;
       }
     } catch (e) {
       console.warn('[CloudSync] Sync error:', e);
+      if (isFirestoreQuotaExceeded()) {
+        setIsCloudQuotaExceededState(true);
+      }
       setCloudSyncStatus('offline');
       return false;
     } finally {
@@ -1065,6 +1095,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let isMounted = true;
     (async () => {
       try {
+        if (isFirestoreQuotaExceeded()) {
+          setIsCloudQuotaExceededState(true);
+          setCloudSyncStatus('offline');
+          return;
+        }
+
         // Validate server connectivity
         testConnection();
 
@@ -1116,10 +1152,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     // Only auto-sync AFTER initial cloud restoration has completed to avoid race conditions!
     if (!isCloudRestoredRef.current) return;
+    if (isFirestoreQuotaExceeded()) {
+      setIsCloudQuotaExceededState(true);
+      return;
+    }
 
     const timer = setTimeout(() => {
       syncNowToCloud();
-    }, 2000); // 2 second debounce
+    }, 15000); // 15 second debounce to prevent burning through free tier limits
 
     return () => clearTimeout(timer);
   }, [
@@ -1127,7 +1167,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     allInvoices,
     packages,
     allNasList,
-    allActiveSessions,
     templates,
     isolirConfig,
     paymentChannels,
@@ -3018,6 +3057,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cloudSyncStatus,
         lastCloudSync,
         isCloudReady,
+        isCloudQuotaExceeded: isCloudQuotaExceededState,
         syncNowToCloud,
       }}
     >

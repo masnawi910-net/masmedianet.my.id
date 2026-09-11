@@ -10,6 +10,52 @@ export enum OperationType {
   WRITE = 'write',
 }
 
+// Circuit breaker for Firestore free tier quota exhaustion (20,000 writes/day)
+const QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown
+let quotaExhaustedUntil: number = 0;
+
+export function isFirestoreQuotaExceeded(): boolean {
+  if (quotaExhaustedUntil > Date.now()) {
+    return true;
+  }
+  try {
+    const stored = sessionStorage.getItem('firestore_quota_exhausted_until');
+    if (stored) {
+      const exp = Number(stored);
+      if (exp > Date.now()) {
+        quotaExhaustedUntil = exp;
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export function markFirestoreQuotaExceeded(cooldownMs: number = QUOTA_COOLDOWN_MS): void {
+  quotaExhaustedUntil = Date.now() + cooldownMs;
+  try {
+    sessionStorage.setItem('firestore_quota_exhausted_until', String(quotaExhaustedUntil));
+  } catch {
+    // ignore
+  }
+  console.warn(
+    `[CloudSync] Kuota Firestore gratis harian (free tier write quota) tercapai. Sinkronisasi cloud ditunda hingga ${new Date(
+      quotaExhaustedUntil
+    ).toLocaleTimeString('id-ID')}. Aplikasi otomatis beralih menggunakan IndexedDB & LocalStorage lokal dengan aman tanpa kendala.`
+  );
+}
+
+export function resetFirestoreQuotaCooldown(): void {
+  quotaExhaustedUntil = 0;
+  try {
+    sessionStorage.removeItem('firestore_quota_exhausted_until');
+  } catch {
+    // ignore
+  }
+}
+
 export interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -28,8 +74,18 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): FirestoreErrorInfo {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isQuota =
+    (error as any)?.code === 'resource-exhausted' ||
+    errMsg.includes('Quota limit exceeded') ||
+    errMsg.includes('resource-exhausted');
+
+  if (isQuota) {
+    markFirestoreQuotaExceeded();
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: null,
       email: null,
@@ -41,7 +97,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+
+  if (!isQuota) {
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+  }
   return errInfo;
 }
 
@@ -49,10 +108,18 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
  * Test connectivity to Firestore server
  */
 export async function testConnection(): Promise<boolean> {
+  if (isFirestoreQuotaExceeded()) {
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'system_tenants', 'connection_test'));
     return true;
   } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if ((error as any)?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
+      markFirestoreQuotaExceeded();
+      return false;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn("Please check your Firebase configuration: client is offline");
     }
@@ -204,37 +271,43 @@ export function parseDatabaseBackupFile(file: File): Promise<DatabaseBackupPaylo
  * Persist app data snapshot to Cloud Firestore (with redundant fallback keys)
  */
 export async function syncToCloudFirestore(tenantId: string, data: any): Promise<boolean> {
+  if (isFirestoreQuotaExceeded()) {
+    return false;
+  }
+
   const targetTenant = tenantId || 'tenant-masmedia';
   try {
     // Sanitize payload to prevent Firestore 1MB limits
     const sanitizedData = {
       ...data,
-      activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs.slice(-200) : [],
-      commandQueue: Array.isArray(data.commandQueue) ? data.commandQueue.slice(-100) : [],
+      activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs.slice(-100) : [],
+      commandQueue: Array.isArray(data.commandQueue) ? data.commandQueue.slice(-50) : [],
+      // Strip high-frequency volatile active sessions from cloud snapshots to save write quota
+      activeSessions: [],
     };
 
     const payloadToSave = {
       payload: {
         ...sanitizedData,
         // Wrap with standard data container if needed
-        data: sanitizedData.data ? sanitizedData.data : sanitizedData
+        data: sanitizedData.data ? sanitizedData.data : sanitizedData,
       },
       lastSyncedAt: new Date().toISOString(),
       tenantId: targetTenant,
     };
 
-    // Primary save: master production document
-    const masterDocRef = doc(db, 'system_tenants', 'master_masmedia_production');
-    await setDoc(masterDocRef, payloadToSave, { merge: true });
-
-    // Secondary save: tenant-specific document
-    if (targetTenant !== 'master_masmedia_production') {
-      const tenantDocRef = doc(db, 'system_tenants', targetTenant);
-      await setDoc(tenantDocRef, payloadToSave, { merge: true });
-    }
+    // Save to target tenant document without duplicate double-writes
+    const docKey = targetTenant === 'master_masmedia_production' ? 'master_masmedia_production' : targetTenant;
+    const docRef = doc(db, 'system_tenants', docKey);
+    await setDoc(docRef, payloadToSave, { merge: true });
 
     return true;
-  } catch (err) {
+  } catch (err: any) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
+      markFirestoreQuotaExceeded();
+      return false;
+    }
     handleFirestoreError(err, OperationType.WRITE, `system_tenants/${targetTenant}`);
     return false;
   }
@@ -244,11 +317,15 @@ export async function syncToCloudFirestore(tenantId: string, data: any): Promise
  * Load app data snapshot from Cloud Firestore with fallback keys
  */
 export async function loadFromCloudFirestore(tenantId?: string): Promise<any | null> {
+  if (isFirestoreQuotaExceeded()) {
+    return null;
+  }
+
   const candidateKeys = [
     tenantId,
     'master_masmedia_production',
     'tenant-masmedia',
-    'default'
+    'default',
   ].filter((k): k is string => Boolean(k));
 
   // Deduplicate keys
@@ -266,7 +343,12 @@ export async function loadFromCloudFirestore(tenantId?: string): Promise<any | n
           return payload;
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (err?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
+        markFirestoreQuotaExceeded();
+        return null;
+      }
       handleFirestoreError(err, OperationType.GET, `system_tenants/${key}`);
     }
   }

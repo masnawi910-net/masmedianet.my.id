@@ -62,6 +62,7 @@ export const DatabaseManagerModal: React.FC<DatabaseManagerModalProps> = ({
     theme,
     cloudSyncStatus,
     lastCloudSync,
+    isCloudQuotaExceeded,
     syncNowToCloud,
   } = useApp();
 
@@ -227,17 +228,31 @@ export const DatabaseManagerModal: React.FC<DatabaseManagerModalProps> = ({
                       Cloud Firestore Sync
                     </span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                      cloudSyncStatus === 'synced'
+                      isCloudQuotaExceeded
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        : cloudSyncStatus === 'synced'
                         ? 'bg-blue-500/20 text-white border border-blue-500/40'
                         : cloudSyncStatus === 'syncing'
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                         : 'bg-slate-800 text-slate-400'
                     }`}>
-                      {cloudSyncStatus === 'synced' ? 'Tersinkron' : cloudSyncStatus === 'syncing' ? 'Menyinkronkan...' : 'Offline'}
+                      {isCloudQuotaExceeded
+                        ? 'Kuota Free Tier Penuh (Lokal Aktif)'
+                        : cloudSyncStatus === 'synced'
+                        ? 'Tersinkron'
+                        : cloudSyncStatus === 'syncing'
+                        ? 'Menyinkronkan...'
+                        : 'Offline'}
                     </span>
                   </div>
                   <p className="text-[11px] text-indigo-200/80 mt-1 leading-relaxed">
-                    Database cloud tersimpan di Google Cloud Firestore. Akses data yang sama dari perangkat mana saja.
+                    {isCloudQuotaExceeded ? (
+                      <span className="text-amber-300/90 font-medium">
+                        Batas kuota harian database gratis Firebase (20.000 writes/hari) sementara tercapai. Aplikasi 100% aman dan lancar menggunakan penyimpanan lokal IndexedDB & Browser Storage.
+                      </span>
+                    ) : (
+                      <>Database cloud tersimpan di Google Cloud Firestore. Akses data yang sama dari perangkat mana saja.</>
+                    )}
                     {lastCloudSync && (
                       <span className="block mt-0.5 text-indigo-300 font-mono text-[10px]">
                         Sync terakhir: {lastCloudSync}
@@ -250,7 +265,7 @@ export const DatabaseManagerModal: React.FC<DatabaseManagerModalProps> = ({
               <button
                 type="button"
                 onClick={async () => {
-                  const res = await syncNowToCloud();
+                  const res = await syncNowToCloud(true);
                   if (res) {
                     setImportStatus({
                       type: 'success',
@@ -259,7 +274,9 @@ export const DatabaseManagerModal: React.FC<DatabaseManagerModalProps> = ({
                   } else {
                     setImportStatus({
                       type: 'error',
-                      message: 'Gagal menyinkronkan ke Cloud Firestore. Silakan cek koneksi internet.',
+                      message: isCloudQuotaExceeded
+                        ? 'Kuota tulis harian Firebase (free tier) dari Google Cloud telah habis untuk hari ini. Semua data tetap tersimpan 100% aman di IndexedDB & Local Storage.'
+                        : 'Gagal menyinkronkan ke Cloud Firestore. Silakan cek koneksi internet.',
                     });
                   }
                 }}
