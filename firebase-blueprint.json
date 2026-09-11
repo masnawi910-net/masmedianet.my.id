@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "system_tenants": {
+      "title": "System Tenants & Multi-ISP Data",
+      "description": "Snapshots of billing, customers, routers, and configurations per ISP tenant in Firestore",
+      "type": "object",
+      "properties": {
+        "payload": {
+          "type": "object",
+          "description": "Full application state snapshot including customers, invoices, NAS routers, packages, and logs"
+        },
+        "lastSyncedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the last sync to cloud database"
+        }
+      },
+      "required": ["payload", "lastSyncedAt"]
+    }
+  },
+  "firestore": {
+    "collections": {
+      "/system_tenants/{tenantId}": {
+        "schema": {
+          "$ref": "#/entities/system_tenants"
+        },
+        "description": "ISP Tenant backup and sync snapshots"
+      }
+    }
+  }
+}

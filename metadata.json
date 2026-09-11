@@ -1,0 +1,6 @@
+{
+  "name": "Masmedia Network - RADIUS & Billing MikroTik",
+  "description": "Sistem ISP & Masmedia Network: RADIUS Server, Users Management, Auto Billing & Isolir, Peta GIS FTTH & Fiber Optik, Helpdesk & Tiket Gangguan, Batch Print Kuitansi, OLT ZTE & TR-069 GenieACS, Portal Pelanggan Mandiri & Formulir Pasang WiFi Baru PDF.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

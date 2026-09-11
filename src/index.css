@@ -1,0 +1,436 @@
+@import "tailwindcss";
+
+:root, html.dark {
+  --color-slate-950: #030712;
+  --color-slate-900: #0f172a;
+  --color-slate-850: #131d33;
+  --color-slate-800: #1e293b;
+  --color-slate-750: #25334a;
+  --color-slate-700: #334155;
+  --color-slate-600: #475569;
+  --color-slate-400: #94a3b8;
+  --color-slate-300: #cbd5e1;
+  --color-slate-200: #e2e8f0;
+  --color-slate-100: #f8fafc;
+  --color-slate-50:  #ffffff;
+  --color-white:      #ffffff;
+
+  --color-emerald-500: #2563eb;
+  --color-emerald-400: #3b82f6;
+  --color-emerald-300: #60a5fa;
+
+  --color-red-500: #ef4444;
+  --color-red-400: #f87171;
+
+  --color-pink-500: #ec4899;
+  --color-pink-600: #db2777;
+
+  color-scheme: dark;
+}
+
+html.light {
+  /* Rich Deep Pink / Pink Pekat Tua Theme for Light Mode */
+  --color-slate-950: #4c0519; /* Deep Rose-Magenta Base Canvas */
+  --color-slate-900: #700936; /* Card panels */
+  --color-slate-850: #500724; 
+  --color-slate-800: #831843; 
+  --color-slate-750: #9d174d; 
+  --color-slate-700: #be185d; 
+  --color-slate-600: #f472b6; 
+  --color-slate-500: #fbcfe8; 
+  --color-slate-400: #fdf2f8; 
+  --color-slate-300: #ffffff; 
+  --color-slate-200: #ffffff; 
+  --color-slate-100: #ffffff; 
+  --color-slate-50:  #ffffff;
+  --color-white:      #ffffff; /* ALWAYS crisp pure white */
+
+  --color-emerald-500: #2563eb;
+  --color-emerald-400: #3b82f6;
+  --color-emerald-300: #60a5fa;
+
+  --color-red-500: #f43f5e;
+  --color-red-400: #fb7185;
+
+  --color-pink-500: #ec4899;
+  --color-pink-600: #db2777;
+
+  color-scheme: dark;
+}
+
+@theme {
+  --color-slate-950: var(--color-slate-950);
+  --color-slate-900: var(--color-slate-900);
+  --color-slate-850: var(--color-slate-850);
+  --color-slate-800: var(--color-slate-800);
+  --color-slate-750: var(--color-slate-750);
+  --color-slate-700: var(--color-slate-700);
+  --color-slate-600: var(--color-slate-600);
+  --color-slate-500: var(--color-slate-500);
+  --color-slate-400: var(--color-slate-400);
+  --color-slate-300: var(--color-slate-300);
+  --color-slate-200: var(--color-slate-200);
+  --color-slate-100: var(--color-slate-100);
+  --color-slate-50:  var(--color-slate-50);
+  --color-white:      var(--color-white);
+
+  --color-emerald-500: var(--color-emerald-500);
+  --color-emerald-400: var(--color-emerald-400);
+
+  --color-red-500: var(--color-red-500);
+  --color-red-400: var(--color-red-400);
+
+  --color-pink-500: var(--color-pink-500);
+  --color-pink-600: var(--color-pink-600);
+}
+
+body {
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-200);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+html.light body {
+  background: radial-gradient(circle at 12% 18%, rgba(190, 24, 93, 0.45) 0%, rgba(80, 7, 36, 0.95) 45%),
+              radial-gradient(circle at 88% 82%, rgba(157, 23, 77, 0.45) 0%, rgba(76, 5, 25, 0.95) 55%),
+              linear-gradient(135deg, #4c0519 0%, #700936 40%, #500724 80%, #380413 100%);
+  background-attachment: fixed;
+  color: #ffffff;
+}
+
+/* Light mode card border & shadow enhancement with deep pink glow */
+html.light .border-slate-800 {
+  border-color: rgba(244, 114, 182, 0.4);
+}
+
+html.light .border-slate-700 {
+  border-color: rgba(244, 114, 182, 0.5);
+}
+
+/* Ensure strong contrast and visibility for muted texts in Light Mode */
+html.light .text-slate-400,
+html.light .text-slate-500,
+html.light .text-gray-400,
+html.light .text-gray-500 {
+  color: #fdf2f8 !important; /* Crisp light-pink-white */
+  opacity: 0.92;
+}
+
+html.light .text-slate-300,
+html.light .text-slate-200,
+html.light .text-slate-100 {
+  color: #ffffff !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #fbcfe8 !important; /* Readable soft pink */
+  opacity: 0.85;
+}
+
+/* Ensure inputs, selects and search fields are clearly framed and readable */
+html.light input[type="text"],
+html.light input[type="number"],
+html.light input[type="password"],
+html.light select,
+html.light textarea {
+  color: #ffffff !important;
+}
+
+/* Table headers & cells contrast in light mode */
+html.light th {
+  color: #fce7f3 !important;
+}
+
+html.light td {
+  color: #ffffff;
+}
+
+/* Mini Calendar disabled slots in light mode */
+html.light .cursor-not-allowed.opacity-40 {
+  color: rgba(253, 242, 248, 0.45) !important;
+}
+
+/* Keep printed documents on white paper completely crisp, high-contrast, and clean */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  body, html, html.light body, html.dark body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Reset table headers, cells, and texts on print so they are never white-on-white */
+  html.light td, html.dark td,
+  html.light th, html.dark th,
+  html.light span, html.dark span,
+  html.light p, html.dark p,
+  html.light strong, html.dark strong,
+  html.light b, html.dark b,
+  html.light div, html.dark div {
+    color: inherit;
+    text-shadow: none !important;
+  }
+
+  html.light th, html.dark th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+  }
+
+  html.light .text-slate-400,
+  html.light .text-slate-500,
+  html.light .text-slate-600,
+  html.light .text-slate-700,
+  html.light .text-slate-800,
+  html.light .text-slate-900,
+  html.light .text-gray-400,
+  html.light .text-gray-500 {
+    color: #1e293b !important;
+    opacity: 1 !important;
+  }
+
+  html.light .border-slate-800,
+  html.light .border-slate-700,
+  html.light .border-slate-400,
+  html.light .border-slate-300,
+  html.light .border-slate-200 {
+    border-color: #94a3b8 !important;
+  }
+
+  /* Hide app navigation and controls when printing */
+  .no-print, nav, aside, .print-hide {
+    display: none !important;
+  }
+}
+.theme-card-emerald {
+  background: linear-gradient(145deg, #1e3a8a 0%, #0f172a 55%, #070d18 100%) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-pink {
+  background: linear-gradient(145deg, #831843 0%, #500720 55%, #27020d 100%) !important;
+  border: 1px solid rgba(244, 114, 182, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(131, 24, 67, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-amber {
+  background: linear-gradient(145deg, #78350f 0%, #451a03 55%, #230b02 100%) !important;
+  border: 1px solid rgba(251, 191, 36, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(120, 53, 15, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-blue {
+  background: linear-gradient(145deg, #1e3a8a 0%, #0f172a 55%, #070d18 100%) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-purple {
+  background: linear-gradient(145deg, #581c87 0%, #3b0764 55%, #18022c 100%) !important;
+  border: 1px solid rgba(192, 132, 252, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(88, 28, 135, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-cyan {
+  background: linear-gradient(145deg, #164e63 0%, #083344 55%, #041820 100%) !important;
+  border: 1px solid rgba(34, 211, 238, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(22, 78, 99, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-card-dark {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 55%, #020617 100%) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Ensure texts inside theme cards are always bright and legible */
+.theme-card-emerald .card-title,
+.theme-card-pink .card-title,
+.theme-card-amber .card-title,
+.theme-card-blue .card-title,
+.theme-card-purple .card-title,
+.theme-card-cyan .card-title,
+.theme-card-dark .card-title {
+  color: #f1f5f9 !important;
+}
+
+.theme-card-emerald .card-val,
+.theme-card-pink .card-val,
+.theme-card-amber .card-val,
+.theme-card-blue .card-val,
+.theme-card-purple .card-val,
+.theme-card-cyan .card-val,
+.theme-card-dark .card-val {
+  color: #ffffff !important;
+}
+
+.theme-card-emerald .card-subtext,
+.theme-card-pink .card-subtext,
+.theme-card-amber .card-subtext,
+.theme-card-blue .card-subtext,
+.theme-card-purple .card-subtext,
+.theme-card-cyan .card-subtext,
+.theme-card-dark .card-subtext {
+  color: #cbd5e1 !important;
+}
+
+/* Ensure solid action buttons, badges, and blue boxes always have crisp white text */
+button[class*="bg-pink-600"],
+button[class*="bg-pink-500"],
+button[class*="bg-rose-600"],
+button[class*="bg-red-600"],
+button[class*="bg-emerald-600"],
+button[class*="bg-emerald-500"],
+button[class*="bg-blue-600"],
+button[class*="bg-blue-500"],
+button[class*="bg-blue-700"],
+button[class*="bg-blue-800"],
+.btn-solid-text-white,
+.badge-blue,
+[class*="bg-blue-600"]:not(input):not(textarea),
+[class*="bg-blue-500"]:not(input):not(textarea) {
+  color: #ffffff !important;
+}
+
+/* Pastikan tulisan di dalam kotak atau tombol biru selalu berwarna putih */
+[class*="bg-blue-600"] span,
+[class*="bg-blue-600"] svg,
+[class*="bg-blue-600"] strong,
+[class*="bg-blue-600"] b,
+[class*="bg-blue-500"] span,
+[class*="bg-blue-500"] svg,
+[class*="bg-blue-500"] strong,
+[class*="bg-blue-500"] b,
+button[class*="bg-blue-"] span,
+button[class*="bg-blue-"] svg,
+button[class*="bg-blue-"] strong,
+button[class*="bg-blue-"] b,
+button[class*="bg-pink-600"] span,
+button[class*="bg-pink-600"] svg,
+button[class*="bg-rose-600"] span,
+button[class*="bg-rose-600"] svg,
+button[class*="bg-emerald-600"] span,
+button[class*="bg-emerald-600"] svg,
+button[class*="bg-emerald-500"] span,
+button[class*="bg-emerald-500"] svg {
+  color: #ffffff !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-slate-950);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-slate-700);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-pink-500);
+}
+
+/* Alternating Blue & Cyan Glowing Animations for Masmedia Network Logo */
+@keyframes blinkBlueToCyan {
+  0%, 100% {
+    color: #60a5fa;
+    filter: drop-shadow(0 0 7px rgba(96, 165, 250, 0.85));
+  }
+  50% {
+    color: #38bdf8;
+    filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.85));
+  }
+}
+
+@keyframes blinkCyanToBlue {
+  0%, 100% {
+    color: #38bdf8;
+    filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.85));
+  }
+  50% {
+    color: #93c5fd;
+    filter: drop-shadow(0 0 7px rgba(147, 197, 253, 0.85));
+  }
+}
+
+.blink-blue-cyan {
+  animation: blinkBlueToCyan 1.8s ease-in-out infinite;
+}
+
+.blink-cyan-blue {
+  animation: blinkCyanToBlue 1.8s ease-in-out infinite;
+}
+
+/* Alternating Pink and Rose Glowing Animations for Masmedia Network Logo */
+@keyframes blinkPinkToRose {
+  0%, 100% {
+    color: #f472b6;
+    filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.85));
+  }
+  50% {
+    color: #fb7185;
+    filter: drop-shadow(0 0 7px rgba(251, 113, 133, 0.85));
+  }
+}
+
+@keyframes blinkRoseToPink {
+  0%, 100% {
+    color: #fda4af;
+    filter: drop-shadow(0 0 7px rgba(253, 164, 175, 0.85));
+  }
+  50% {
+    color: #f472b6;
+    filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.85));
+  }
+}
+
+.blink-pink-rose {
+  animation: blinkPinkToRose 1.8s ease-in-out infinite;
+}
+
+.blink-rose-pink {
+  animation: blinkRoseToPink 1.8s ease-in-out infinite;
+}
+
+/* Alternating Blue and Sky Blinking / Glowing Animations */
+@keyframes blinkGreenToBlue {
+  0%, 100% {
+    color: #38bdf8;
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+  }
+  50% {
+    color: #60a5fa;
+    filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.7));
+  }
+}
+
+@keyframes blinkBlueToGreen {
+  0%, 100% {
+    color: #60a5fa;
+    filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.7));
+  }
+  50% {
+    color: #38bdf8;
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+  }
+}
+
+.blink-green-blue {
+  animation: blinkGreenToBlue 1.8s ease-in-out infinite;
+}
+
+.blink-blue-green {
+  animation: blinkBlueToGreen 1.8s ease-in-out infinite;
+}

@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ISP & Radius Application Multi-tenant Collection
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
