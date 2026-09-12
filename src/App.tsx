@@ -16,7 +16,6 @@ import { TR069View } from './components/TR069/TR069View';
 import { PPPDHCPView } from './components/Radius/PPPDHCPView';
 import { HotspotView } from './components/Radius/HotspotView';
 import { RadiusSettingView } from './components/Radius/RadiusSettingView';
-import { VPNSettingView } from './components/Radius/VPNSettingView';
 
 import { BatchInvoicePrintView } from './components/Billing/BatchInvoicePrintView';
 import { IsolirEngineView } from './components/Isolir/IsolirEngineView';
@@ -87,7 +86,10 @@ const MainContent: React.FC = () => {
       {/* 2. Radius Sub-menus */}
       {(activeTab === 'radius-ppp' || activeTab === 'ppp-dhcp') && <PPPDHCPView />}
       {(activeTab === 'radius-hotspot' || activeTab === 'hotspot') && <HotspotView />}
-      {(activeTab === 'radius-setting' || activeTab === 'setting' || activeTab === 'setting-radius' || activeTab === 'radius') && <RadiusSettingView />}
+      {(activeTab === 'radius-setting' || activeTab === 'setting' || activeTab === 'pengaturan') && <RadiusSettingView initialTab="vpn" />}
+      {(activeTab === 'radius-vpn' || activeTab === 'vpn' || activeTab === 'setting-vpn') && <RadiusSettingView initialTab="vpn" />}
+      {(activeTab === 'radius-nas' || activeTab === 'nas' || activeTab === 'setting-radius' || activeTab === 'radius') && <RadiusSettingView initialTab="nas" />}
+      {(activeTab === 'radius-scheduler' || activeTab === 'scheduler' || activeTab === 'setting-scheduler') && <RadiusSettingView initialTab="scheduler" />}
       {(activeTab === 'mikrotik-queue' || activeTab === 'queue') && <MikroTikView initialTab="queue" />}
 
       {/* 3. Billing Sub-menus */}
@@ -123,6 +125,8 @@ const MainContent: React.FC = () => {
         activeTab === 'multi-tenant' ||
         activeTab === 'vps-master-hub' ||
         activeTab === 'port-forwarding' ||
+        activeTab === 'port-matrix' ||
+        activeTab === 'vps-automation' ||
         activeTab === 'saas-billing' ||
         activeTab === 'radius-debugger') && (
         currentUser?.role === 'superadmin' ? (
@@ -139,9 +143,6 @@ const MainContent: React.FC = () => {
           </div>
         )
       )}
-
-      {/* Radius Pengaturan: VPN */}
-      {(activeTab === 'vpn' || activeTab === 'setting-vpn') && <VPNSettingView />}
 
       {/* Utilities */}
       {(activeTab === 'panduan' || activeTab === 'guide' || activeTab === 'buku-panduan') && <GuideView />}

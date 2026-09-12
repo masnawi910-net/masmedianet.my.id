@@ -25,15 +25,15 @@ import {
   Sliders,
   Send,
   Cpu,
-  Layers,
   CheckCheck,
 } from 'lucide-react';
 
-export const VPNSettingView: React.FC = () => {
-  const { vpnConfigs, addVPN, deleteVPN, toggleVPN } = useApp();
+export interface VPNSettingViewProps {
+  embedded?: boolean;
+}
 
-  // Active View Tab
-  const [activeTab, setActiveTab] = useState<'clients' | 'vps_automation' | 'port_matrix'>('clients');
+export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false }) => {
+  const { vpnConfigs, addVPN, deleteVPN, toggleVPN, setActiveTab } = useApp();
 
   // VPS Server Public Host IP (Default user VPS IP)
   const defaultServerHost = '103.49.239.150';
@@ -65,6 +65,7 @@ export const VPNSettingView: React.FC = () => {
   // Modal State
   const [selectedVpnModal, setSelectedVpnModal] = useState<VPNConfig | null>(null);
   const [modalTab, setModalTab] = useState<'mikrotik' | 'whatsapp' | 'vps_command'>('mikrotik');
+  const [vpnScriptStep, setVpnScriptStep] = useState<'step1' | 'step2' | 'step3'>('step1');
   const [copiedModalScript, setCopiedModalScript] = useState(false);
   const [quickCopiedId, setQuickCopiedId] = useState<string | null>(null);
 
@@ -343,6 +344,81 @@ add chain=input in-interface="${ifaceName}" action=accept place-before=0 comment
 `;
   };
 
+  // 2. Skrip NAS RADIUS AAA + CoA 3799 + SNMP
+  const generateNasRadiusScriptForVpn = (vpn: VPNConfig): string => {
+    return `# ====================================================================
+# 2. SCRIPT KONFIGURASI RADIUS & SNMP MIKROTIK - ${vpn.name}
+# IP RADIUS Server : 103.49.239.150
+# Secret Key RADIUS: Server@123
+# ====================================================================
+
+# 2.1. Bersihkan konfigurasi RADIUS lama
+/radius remove [find comment~"Masmedia|RadbooX|Billing|FreeRADIUS"]
+
+# 2.2. Daftarkan RADIUS Server untuk Service PPP & Hotspot
+/radius add address=103.49.239.150 secret="Server@123" \\
+    service=ppp,hotspot authentication-port=1812 accounting-port=1813 \\
+    timeout=3000ms comment="Masmedia FreeRADIUS Server"
+
+# 2.3. Aktifkan Incoming RADIUS (CoA / Packet of Disconnect untuk Kick & Isolir Otomatis)
+/radius incoming set accept=yes port=3799
+
+# 2.4. Sinkronkan PPP AAA dengan FreeRADIUS Server
+/ppp aaa set use-radius=yes accounting=yes interim-update=00:01:00
+
+# 2.5. Sinkronkan Hotspot Server Profile dengan RADIUS
+/ip hotspot profile set [find default=yes] use-radius=yes radius-accounting=yes radius-interim-update=00:01:00 \\
+    login-by=http-chap,http-pap,mac-cookie split-user-domain=no
+
+# 2.6. Aktifkan Layanan SNMP MikroTik (Port UDP 161)
+/snmp set enabled=yes contact="admin@masmedianet" location="NOC Masmedia"
+/snmp community set [find default=yes] name=public read-access=yes addresses=0.0.0.0/0
+
+:put "========================================================="
+:put ">>> [2/3] SUKSES! CONFIG RADIUS & SNMP ${vpn.name} BERHASIL DIPASANG <<<"
+:put "========================================================="
+`;
+  };
+
+  // 3. Skrip Scheduler Otomatis (Heartbeat Sinyal Realtime Tiap 30 Detik)
+  const generateSchedulerHeartbeatScriptForVpn = (vpn: VPNConfig): string => {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://masmedianet.my.id';
+
+    return `# ====================================================================
+# 3. SCRIPT SCHEDULER OTOMATIS HEARTBEAT - ${vpn.name}
+# URL Dashboard : ${currentOrigin}
+# ID Router NAS : ${vpn.id}
+# Interval      : Setiap 30 Detik (Otomatis & Realtime)
+# ====================================================================
+
+# 3.1. Bersihkan skrip & scheduler heartbeat lama jika ada
+/system scheduler remove [find name="masmedia-heartbeat"]
+/system script remove [find name="masmedia-send-heartbeat"]
+
+# 3.2. Buat script fetch pengirim sinyal status ke server web
+/system script add name=masmedia-send-heartbeat source="/tool fetch url=\\"${currentOrigin}/api/mikrotik/heartbeat?nasId=${vpn.id}&uptime=ok\\" keep-result=no"
+
+# 3.3. Jadwalkan otomatis jalan setiap 30 detik tanpa henti & saat router reboot
+/system scheduler add name=masmedia-heartbeat interval=30s on-event=masmedia-send-heartbeat start-time=startup
+
+# 3.4. Jalankan pertama kali sekarang
+/system script run masmedia-send-heartbeat
+
+:put "========================================================="
+:put ">>> [3/3] SUKSES! SCHEDULER OTOMATIS ${vpn.name} BERHASIL AKTIF! <<<"
+:put ">>> Status Router di Dashboard Otomatis ONLINE (Hijau) <<<"
+:put "========================================================="
+`;
+  };
+
+  // Skrip MikroTik Dibuat Terpisah Satu Per Satu (Tidak Digabung)
+  const getVpnScriptByStep = (vpn: VPNConfig): string => {
+    if (vpnScriptStep === 'step1') return generateFullMikrotikScript(vpn);
+    if (vpnScriptStep === 'step2') return generateNasRadiusScriptForVpn(vpn);
+    if (vpnScriptStep === 'step3') return generateSchedulerHeartbeatScriptForVpn(vpn);
+    return generateFullMikrotikScript(vpn);
+  };
+
   const generateWhatsAppMessage = (vpn: VPNConfig): string => {
     const host = vpn.serverAddress || defaultServerHost;
     const winboxPort = vpn.remoteWinboxPort || 18291;
@@ -397,50 +473,6 @@ sudo iptables -A FORWARD -p tcp -d ${clientIp} --dport 80 -j ACCEPT
 # 3. Simpan rule iptables agar permanen saat VPS reboot
 sudo netfilter-persistent save
 `;
-  };
-
-  // Batch VPS Rule for all clients
-  const generateAllClientsVPSBatchScript = (): string => {
-    let script = `#!/bin/bash
-# ====================================================================
-# MASMEDIA VPN REMOTE - BATCH IPTABLES CONFIGURATION SCRIPT
-# Server VPS: ${serverHost}
-# Generated: ${new Date().toLocaleString('id-ID')}
-# ====================================================================
-
-echo ">>> Mengaktifkan IP Forwarding Kernel Linux..."
-sysctl -w net.ipv4.ip_forward=1
-sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
-
-echo ">>> Menerapkan Rule Port Forwarding untuk ${vpnConfigs.length} Klien VPN..."
-
-`;
-
-    vpnConfigs.forEach((c, idx) => {
-      const clientIp = c.remoteIp || `10.200.0.${10 + idx}`;
-      const winboxPort = c.remoteWinboxPort || 18291 + idx;
-      const webPort = c.remoteWebPort || 18080 + idx;
-
-      script += `# Klien #${idx + 1}: ${c.name} (${c.type.toUpperCase()})
-iptables -t nat -A PREROUTING -p tcp -d ${serverHost} --dport ${winboxPort} -j DNAT --to-destination ${clientIp}:8291
-iptables -A FORWARD -p tcp -d ${clientIp} --dport 8291 -j ACCEPT
-iptables -t nat -A PREROUTING -p tcp -d ${serverHost} --dport ${webPort} -j DNAT --to-destination ${clientIp}:80
-iptables -A FORWARD -p tcp -d ${clientIp} --dport 80 -j ACCEPT
-
-`;
-    });
-
-    script += `echo ">>> Menyimpan rule iptables permanen..."
-if command -v netfilter-persistent > /dev/null; then
-  netfilter-persistent save
-else
-  iptables-save > /etc/iptables/rules.v4
-fi
-
-echo ">>> SELESAI! Seluruh ${vpnConfigs.length} Klien VPN Kini Aktif & Ter-forward!"
-`;
-
-    return script;
   };
 
   return (
@@ -503,49 +535,28 @@ echo ">>> SELESAI! Seluruh ${vpnConfigs.length} Klien VPN Kini Aktif & Ter-forwa
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 mt-6 pt-4 border-t border-slate-800/80 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('clients')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'clients'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            <span>Daftar Klien VPN Remote ({vpnConfigs.length})</span>
-          </button>
+        {/* Quick Link to Master VPS Hub */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-800/80">
+          <div className="flex items-center gap-2 text-xs text-slate-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold text-slate-200">Manajemen Klien & Mitra:</span>
+            <span className="text-slate-400">Buat akun VPN, ambil 3 skrip MikroTik (VPN, NAS, Scheduler), dan bagikan ke mitra via WA.</span>
+          </div>
 
           <button
-            onClick={() => setActiveTab('vps_automation')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'vps_automation'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
+            type="button"
+            onClick={() => setActiveTab('vps-automation')}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 text-indigo-300 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-sm"
           >
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>⚡ Zero-Touch Otomatisasi VPS (Tanpa Sentuh Terminal)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('port_matrix')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'port_matrix'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>Peta Port Forwarding & NAT</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>⚙️ Kelola IPTables & Daemon VPS di Menu 8. Server VPS & Hub</span>
+            <ExternalLink className="w-3 h-3" />
           </button>
         </div>
       </div>
 
-      {/* TAB 1: CLIENTS & FORM GENERATOR */}
-      {activeTab === 'clients' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* CLIENTS & FORM GENERATOR */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Form Buat Akun Klien Dinamis */}
           <div className="lg:col-span-5 xl:col-span-4">
             <div className="bg-[#121b2d] border border-slate-800 rounded-3xl p-6 shadow-md space-y-5 flex flex-col justify-between">
@@ -1029,235 +1040,6 @@ echo ">>> SELESAI! Seluruh ${vpnConfigs.length} Klien VPN Kini Aktif & Ter-forwa
             </div>
           </div>
         </div>
-      )}
-
-      {/* TAB 2: ZERO-TOUCH VPS AUTOMATION (PENJELASAN & SKRIP VPS DINAMIS) */}
-      {activeTab === 'vps_automation' && (
-        <div className="space-y-6 animate-fadeIn">
-          {/* Architecture Card */}
-          <div className="bg-[#121b2d] border border-slate-800 rounded-3xl p-6 space-y-6">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
-                <Sparkles className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold text-white">
-                  Bagaimana VPS Bekerja Otomatis Tanpa Login Manual Setiap Ada Klien Baru?
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  Agar Anda tidak perlu membuka terminal VPS setiap kali ada klien baru yang ingin MikroTik-nya diremote, Anda cukup memasang <strong>Daemon Otomatisasi (Zero-Touch Provisioning)</strong> 1 kali saja di VPS.
-                </p>
-              </div>
-            </div>
-
-            {/* 3 Auto Solutions Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Option A */}
-              <div className="p-5 rounded-2xl bg-[#0a0f1d] border border-slate-800 space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
-                  A
-                </div>
-                <h4 className="text-sm font-bold text-white">Opsi A: Daemon Auto-NAT (WireGuard)</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Pasang skrip cron / systemd service di VPS yang memonitor peer WireGuard. Setiap ada IP baru yang aktif di subnet <code className="text-emerald-400">10.200.0.X</code>, daemon langsung membuka port Winbox <code className="text-blue-400">1829X</code> otomatis!
-                </p>
-              </div>
-
-              {/* Option B */}
-              <div className="p-5 rounded-2xl bg-[#0a0f1d] border border-slate-800 space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
-                  B
-                </div>
-                <h4 className="text-sm font-bold text-white">Opsi B: Accel-PPP Hook (L2TP/SSTP)</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Menggunakan script <code className="text-purple-400">/etc/ppp/ip-up</code> di VPS. Saat router klien dial-in, script langsung mengeksekusi iptables DNAT secara dinamis dan menghapusnya saat router klien disconnect.
-                </p>
-              </div>
-
-              {/* Option C */}
-              <div className="p-5 rounded-2xl bg-[#0a0f1d] border border-slate-800 space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
-                  C
-                </div>
-                <h4 className="text-sm font-bold text-white">Opsi C: 1-Click Batch Update Sync</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Jika Anda lebih suka kontrol penuh tanpa daemon, tombol <strong>[Salin Skrip Batch VPS]</strong> di bawah langsung merangkum seluruh rule iptables untuk semua klien dalam 1 baris perintah terminal.
-                </p>
-              </div>
-            </div>
-
-            {/* Skrip 1-Click Install Daemon Otomatis di VPS */}
-            <div className="space-y-3 pt-4 border-t border-slate-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-emerald-400" />
-                    <span>Skrip Pasang 1-Kali Daemon Auto-Port Forward di VPS:</span>
-                  </h4>
-                  <p className="text-xs text-slate-400">
-                    Jalankan skrip ini <strong>sekali saja</strong> di VPS Anda melalui SSH. Setelah itu, port 18291-18350 akan otomatis ter-forward ke IP klien yang sesuai!
-                  </p>
-                </div>
-
-                <button
-                  onClick={() =>
-                    handleCopyScript(
-                      `# 1. Buka Port Range 18291-18350 di IPTABLES VPS Sekaligus (Range Otomatis)
-sudo iptables -t nat -A PREROUTING -p tcp -m multiport --dports 18291:18350 -j DNAT --to-destination 10.200.0.10-10.200.0.69:8291
-sudo iptables -A FORWARD -p tcp --dport 8291 -j ACCEPT
-
-# 2. Simpan agar permanen
-sudo netfilter-persistent save
-
-echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif!"
-`,
-                      'daemon-script'
-                    )
-                  }
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow"
-                >
-                  {quickCopiedId === 'daemon-script' ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Berhasil Tersalin!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      <span>Salin Skrip Pasang 1-Kali</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <pre className="p-4 rounded-2xl bg-[#0a0f1d] border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto leading-relaxed">
-{`# 1. Buka Port Range 18291-18350 di IPTABLES VPS Sekaligus (Range Otomatis)
-sudo iptables -t nat -A PREROUTING -p tcp -m multiport --dports 18291:18350 -j DNAT --to-destination 10.200.0.10-10.200.0.69:8291
-sudo iptables -A FORWARD -p tcp --dport 8291 -j ACCEPT
-
-# 2. Simpan agar permanen saat VPS restart
-sudo netfilter-persistent save
-
-echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif!"`}
-              </pre>
-            </div>
-
-            {/* Skrip Batch Sinkronisasi Seluruh Klien */}
-            <div className="space-y-3 pt-4 border-t border-slate-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Server className="w-4 h-4 text-blue-400" />
-                    <span>Skrip Batch Sync Seluruh Klien Aktif Saat Ini ({vpnConfigs.length} Klien):</span>
-                  </h4>
-                  <p className="text-xs text-slate-400">
-                    Ekspor seluruh konfigurasi iptables untuk semua router klien yang ada di tabel.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => handleCopyScript(generateAllClientsVPSBatchScript(), 'batch-script')}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow"
-                >
-                  {quickCopiedId === 'batch-script' ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Tersalin!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      <span>Salin Semua Rule ({vpnConfigs.length} Klien)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <pre className="p-4 rounded-2xl bg-[#0a0f1d] border border-slate-800 text-xs font-mono text-blue-300 overflow-x-auto max-h-60 leading-relaxed">
-                {generateAllClientsVPSBatchScript()}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: PORT MATRIX TABLE */}
-      {activeTab === 'port_matrix' && (
-        <div className="space-y-6 animate-fadeIn">
-          <div className="bg-[#121b2d] border border-slate-800 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-              <div>
-                <h3 className="text-base font-bold text-white">Matriks Port Forwarding & Pemetaan NAT</h3>
-                <p className="text-xs text-slate-400">
-                  Daftar port publik eksternal VPS yang diteruskan ke port lokal MikroTik masing-masing klien.
-                </p>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 font-semibold select-none">
-                    <th className="py-3 px-3">Port Publik VPS</th>
-                    <th className="py-3 px-3">Nama Klien / Router</th>
-                    <th className="py-3 px-3">IP Tunnel Target</th>
-                    <th className="py-3 px-3">Port Internal Target</th>
-                    <th className="py-3 px-3">Layanan</th>
-                    <th className="py-3 px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {vpnConfigs.map((c, i) => (
-                    <React.Fragment key={c.id}>
-                      {/* Winbox row */}
-                      <tr className="hover:bg-slate-800/30">
-                        <td className="py-2.5 px-3 text-emerald-400 font-bold">
-                          {c.remoteWinboxPort || 18291 + i}
-                        </td>
-                        <td className="py-2.5 px-3 font-sans text-slate-200 font-bold">{c.name}</td>
-                        <td className="py-2.5 px-3 text-blue-300">{c.remoteIp || `10.200.0.${10 + i}`}</td>
-                        <td className="py-2.5 px-3 text-slate-300">8291 (TCP)</td>
-                        <td className="py-2.5 px-3 font-sans">
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                            Winbox GUI
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-sans">
-                          <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px]">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                            Aktif
-                          </span>
-                        </td>
-                      </tr>
-
-                      {/* Webfig row */}
-                      <tr className="hover:bg-slate-800/30 bg-slate-900/20">
-                        <td className="py-2.5 px-3 text-purple-400 font-bold">
-                          {c.remoteWebPort || 18080 + i}
-                        </td>
-                        <td className="py-2.5 px-3 font-sans text-slate-400 text-xs">{c.name}</td>
-                        <td className="py-2.5 px-3 text-blue-300">{c.remoteIp || `10.200.0.${10 + i}`}</td>
-                        <td className="py-2.5 px-3 text-slate-300">80 (TCP HTTP)</td>
-                        <td className="py-2.5 px-3 font-sans">
-                          <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold">
-                            WebFig Browser
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-sans">
-                          <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px]">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                            Aktif
-                          </span>
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL DIALOG: SKRIP MIKROTIK, PESAN WA, & VPS COMMANDS */}
       {selectedVpnModal && (
@@ -1337,26 +1119,78 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
               {/* Tab 1: MikroTik Script */}
               {modalTab === 'mikrotik' && (
                 <div className="space-y-3 animate-fadeIn">
-                  <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-200 leading-relaxed flex items-start gap-2.5">
-                    <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-blue-100">Panduan Tempel di MikroTik Klien:</p>
-                      <ol className="list-decimal list-inside space-y-1 text-slate-300 mt-1">
-                        <li>Buka aplikasi <strong>Winbox</strong> dan login ke MikroTik klien.</li>
-                        <li>Buka menu <strong>New Terminal</strong>.</li>
-                        <li>Salin skrip di bawah ini, lalu <strong>Paste</strong> ke Terminal dan tekan <strong>Enter</strong>.</li>
-                        <li>Interface VPN akan langsung <strong>Connected / Running</strong>.</li>
-                      </ol>
+                  <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-200 leading-relaxed space-y-2">
+                    <div className="flex items-center gap-2 font-bold text-blue-100 text-sm">
+                      <Info className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>3 Skrip Wajib MikroTik (Dijalankan Berurutan):</span>
                     </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+                      <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
+                        <span className="font-bold text-amber-400 block mb-0.5">1. Skrip VPN</span>
+                        <span className="text-slate-300">Hubungkan interface WireGuard/L2TP ke VPS Masmedia.</span>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
+                        <span className="font-bold text-emerald-400 block mb-0.5">2. Skrip NAS RADIUS</span>
+                        <span className="text-slate-300">Sinkronisasi AAA Hotspot, PPPoE, CoA 3799 & SNMP.</span>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
+                        <span className="font-bold text-cyan-400 block mb-0.5">3. Scheduler Otomatis</span>
+                        <span className="text-slate-300">Kirim sinyal heartbeat realtime tiap 30s agar status ONLINE.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step Selector Buttons (Skrip Terpisah Satu Per Satu) */}
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl overflow-x-auto text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setVpnScriptStep('step1')}
+                      className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        vpnScriptStep === 'step1'
+                          ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-amber-500/30 text-amber-200 text-[10px] font-bold flex items-center justify-center">1</span>
+                      <span>1. Skrip VPN WireGuard</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVpnScriptStep('step2')}
+                      className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        vpnScriptStep === 'step2'
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-emerald-500/30 text-emerald-200 text-[10px] font-bold flex items-center justify-center">2</span>
+                      <span>2. Skrip NAS (RADIUS)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVpnScriptStep('step3')}
+                      className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        vpnScriptStep === 'step3'
+                          ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-cyan-500/30 text-cyan-200 text-[10px] font-bold flex items-center justify-center">3</span>
+                      <span>3. Skrip Scheduler Heartbeat</span>
+                    </button>
                   </div>
 
                   <div className="relative">
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-950 border-t border-x border-slate-800 rounded-t-2xl text-[11px] text-slate-400 font-mono">
-                      <span>RouterOS Script (1-Click Paste)</span>
-                      <span className="text-emerald-400">Siap Pakai</span>
+                      <span>
+                        {vpnScriptStep === 'step1' && 'Langkah 1: Skrip Interface VPN Tunnel & Port Remote WireGuard'}
+                        {vpnScriptStep === 'step2' && 'Langkah 2: Skrip NAS (RADIUS AAA + CoA 3799 + SNMP MikroTik)'}
+                        {vpnScriptStep === 'step3' && 'Langkah 3: Skrip Scheduler Otomatis (Heartbeat Realtime Tiap 30 Detik)'}
+                      </span>
+                      <span className="text-emerald-400">Siap Tempel di Terminal</span>
                     </div>
                     <pre className="p-4 rounded-b-2xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-64 leading-relaxed selection:bg-blue-500 selection:text-white">
-                      {generateFullMikrotikScript(selectedVpnModal)}
+                      {getVpnScriptByStep(selectedVpnModal)}
                     </pre>
                   </div>
                 </div>
@@ -1437,7 +1271,7 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
                 <button
                   onClick={() => {
                     if (modalTab === 'mikrotik') {
-                      handleCopyScript(generateFullMikrotikScript(selectedVpnModal));
+                      handleCopyScript(getVpnScriptByStep(selectedVpnModal));
                     } else if (modalTab === 'whatsapp') {
                       handleCopyScript(generateWhatsAppMessage(selectedVpnModal));
                     } else {
@@ -1456,7 +1290,11 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
                       <Copy className="w-4 h-4" />
                       <span>
                         {modalTab === 'mikrotik'
-                          ? 'Salin Skrip MikroTik'
+                          ? vpnScriptStep === 'step1'
+                            ? 'Salin Skrip 1 (VPN WireGuard)'
+                            : vpnScriptStep === 'step2'
+                            ? 'Salin Skrip 2 (NAS RADIUS)'
+                            : 'Salin Skrip 3 (Scheduler Heartbeat)'
                           : modalTab === 'whatsapp'
                           ? 'Salin Pesan WA'
                           : 'Salin Perintah VPS'}

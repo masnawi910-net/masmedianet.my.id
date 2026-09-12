@@ -30,6 +30,7 @@ import {
   Zap,
   BookOpen,
   Database,
+  Layers,
 } from 'lucide-react';
 
 interface MenuCategory {
@@ -171,8 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMob
         subInactiveBadge: 'bg-emerald-950 text-emerald-200 border border-emerald-800',
       },
       subMenus: [
-        { id: 'setting-vpn', label: 'Pengaturan: VPN', icon: Shield },
-        { id: 'radius-setting', label: 'Pengaturan: Radius (NAS)', icon: Radio, badge: `${nasList.length}` },
+        { id: 'radius-setting', label: 'Pengaturan', icon: Settings, badge: '3 Tab' },
         { id: 'radius-ppp', label: 'PPP-DHCP (PPPoE, Sesi, Profil)', icon: Router },
         { id: 'radius-hotspot', label: 'Hotspot (Voucher, Sesi, Profil)', icon: Wifi },
         {
@@ -319,6 +319,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMob
             },
             subMenus: [
               { id: 'vps-master-hub', label: 'Port Forwarding (Remote)', icon: Network, badge: 'Pusat' },
+              { id: 'port-matrix', label: 'Peta Port & NAT Matriks', icon: Layers, badge: 'Peta' },
+              { id: 'vps-automation', label: 'Zero-Touch Otomatisasi VPS', icon: Sparkles, badge: 'Auto' },
               { id: 'tenants', label: 'Kelola Cabang & Mitra ISP', icon: Building2, badge: `${tenants.length}` },
               { id: 'saas-billing', label: 'Auto-Billing Langganan SaaS', icon: ReceiptText, badge: 'SaaS' },
               { id: 'radius-debugger', label: 'Log Radius AAA & CoA', icon: Radio, badge: 'Live' },
