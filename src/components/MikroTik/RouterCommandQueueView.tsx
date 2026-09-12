@@ -39,7 +39,7 @@ export const RouterCommandQueueView: React.FC = () => {
     retryCommand,
     cancelCommand,
     clearCompletedCommands,
-    toggleRouterStatus,
+    pingRouter,
     enqueueCommand,
     logActivity,
   } = useApp();
@@ -303,15 +303,12 @@ export const RouterCommandQueueView: React.FC = () => {
                   <span className="font-semibold">{nas.name}</span>
                   <span className="text-[10px] opacity-75 font-mono">({nas.ipAddress})</span>
                   <button
-                    onClick={() => toggleRouterStatus(nas.id)}
-                    className={`ml-1 text-[10px] px-2 py-0.5 rounded font-bold transition-all ${
-                      isOnline
-                        ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/40'
-                        : 'bg-blue-500 text-white hover:bg-blue-400'
-                    }`}
-                    title={isOnline ? 'Klik untuk simulasi mati lampu / offline' : 'Klik untuk nyalakan kembali (Auto-Drain Queue)'}
+                    onClick={() => pingRouter(nas.id)}
+                    className="ml-1 text-[10px] px-2 py-0.5 rounded font-bold transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer"
+                    title="Uji konektivitas ping & sinkronisasi antrean router secara realtime"
                   >
-                    {isOnline ? 'Set Offline' : 'Set Online (Sync)'}
+                    <RefreshCw className="w-2.5 h-2.5 text-cyan-400" />
+                    Ping
                   </button>
                 </div>
               );

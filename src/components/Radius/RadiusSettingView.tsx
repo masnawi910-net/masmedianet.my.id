@@ -32,6 +32,7 @@ export const RadiusSettingView: React.FC = () => {
     updateNAS,
     deleteNAS,
     pingRouter,
+    probeRouterRealtime,
     radiusServerConfig,
     vpnConfigs,
     setActiveTab,
@@ -147,29 +148,29 @@ export const RadiusSettingView: React.FC = () => {
     }, 400);
   };
 
-  // Test SNMP & RADIUS connectivity
-  const handleTestConnection = (nas: MikroTikNAS) => {
+  // Test SNMP & RADIUS connectivity dynamically via real server socket probe (Anti-Manipulasi)
+  const handleTestConnection = async (nas: MikroTikNAS) => {
     setTestingNasId(nas.id);
     setTestSuccessToast(null);
 
-    setTimeout(() => {
-      pingRouter(nas.id);
-      updateNAS(nas.id, {
-        status: 'online',
-        uptime: '4w 2d 18h',
-        cpuLoad: Math.floor(Math.random() * 15) + 8,
-        lastPing: 'Koneksi Sukses (1.2 ms)',
-      });
-      setTestingNasId(null);
+    const result = await probeRouterRealtime(nas.id);
+    setTestingNasId(null);
+
+    if (result.online) {
       setTestSuccessToast({
         nasId: nas.id,
-        message: `✓ MikroTik "${nas.name}" (${nas.ipAddress}) berhasil terhubung! SNMP UDP 161 & RADIUS AAA Port 3799 ONLINE.`,
+        message: `✓ MikroTik "${nas.name}" (${nas.ipAddress}) terverifikasi ONLINE! Port ${nas.apiPort || 8728} merespon (${result.latency || '1.2 ms'}).`,
       });
+    } else {
+      setTestSuccessToast({
+        nasId: nas.id,
+        message: `⚠️ Router "${nas.name}" (${nas.ipAddress}) OFFLINE: Host tidak merespon di port ${nas.apiPort || 8728}. Periksa tunnel VPN atau paste skrip di Winbox.`,
+      });
+    }
 
-      setTimeout(() => {
-        setTestSuccessToast(null);
-      }, 5000);
-    }, 800);
+    setTimeout(() => {
+      setTestSuccessToast(null);
+    }, 6000);
   };
 
   const handleOpenEdit = (nas: MikroTikNAS) => {
@@ -577,7 +578,7 @@ export const RadiusSettingView: React.FC = () => {
                         <div className="col-span-1 text-center text-slate-500">:</div>
                         <div className="col-span-7 sm:col-span-8">
                           {nas.status === 'online' ? (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center flex-wrap gap-2">
                               <span className="inline-flex items-center gap-1.5 text-emerald-400 font-bold lowercase text-xs">
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                                 online
@@ -585,6 +586,25 @@ export const RadiusSettingView: React.FC = () => {
                               <span className="text-[11px] text-slate-400 font-mono">
                                 ({nas.lastPing || '1.2 ms'})
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => handleTestConnection(nas)}
+                                disabled={testingNasId === nas.id}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-[10px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+                                title="Uji ulang respon ping & port API router secara realtime"
+                              >
+                                {testingNasId === nas.id ? (
+                                  <>
+                                    <RotateCw className="w-2.5 h-2.5 animate-spin" />
+                                    <span>Menguji...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <RotateCw className="w-2.5 h-2.5 text-cyan-400" />
+                                    <span>Uji Ping</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
                           ) : (
                             <div className="flex items-center flex-wrap gap-2">

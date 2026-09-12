@@ -30,6 +30,7 @@ import {
   Lock,
   Wifi,
   Shield,
+  ShieldAlert,
   KeyRound,
   Download,
   Upload,
@@ -56,6 +57,7 @@ export const PPPDHCPView: React.FC = () => {
     deleteCustomer,
     isolateCustomer,
     unIsolateCustomer,
+    setActiveTab,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'user' | 'session' | 'profile' | 'setting'>('user');
@@ -493,6 +495,31 @@ export const PPPDHCPView: React.FC = () => {
             </div>
           </div>
 
+          {/* Alert jika belum ada router yang terhubung */}
+          {!nasList.some(n => n.status === 'online') && (
+            <div className="bg-rose-950/40 border border-rose-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-rose-900/50 border border-rose-700/50 flex items-center justify-center text-rose-300 shrink-0 mt-0.5 sm:mt-0">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-rose-200">
+                    Status Router MikroTik: OFFLINE (Belum Ada Router yang Terhubung)
+                  </h4>
+                  <p className="text-rose-300/80 text-[11px] mt-0.5">
+                    User PPPoE yang baru ditambahkan tersimpan dengan status <strong>"Akun Terdaftar"</strong> di database. Status koneksi sesi perangkat pelanggan tetap <strong>"Offline (Router Belum Konek)"</strong> karena router fisik MikroTik belum terhubung via VPN / skrip Winbox.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('radius-setting')}
+                className="px-3 py-1.5 rounded-xl bg-rose-800/80 hover:bg-rose-700 text-white font-bold text-xs whitespace-nowrap shadow-xs transition-colors shrink-0 cursor-pointer"
+              >
+                Pengaturan Router NAS &rarr;
+              </button>
+            </div>
+          )}
+
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -504,7 +531,7 @@ export const PPPDHCPView: React.FC = () => {
                     <th className="px-4 py-3">Service</th>
                     <th className="px-4 py-3">Paket Internet</th>
                     <th className="px-4 py-3">IP Address (Static)</th>
-                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Status Akun & Sesi</th>
                     <th className="px-4 py-3 text-right">Aksi</th>
                   </tr>
                 </thead>
@@ -536,14 +563,16 @@ export const PPPDHCPView: React.FC = () => {
                         <td className="px-4 py-3 font-mono text-slate-300">{cust.ipAddress}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1 items-start">
-                            {/* Status Akun Secret */}
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            {/* Status Akun di Database */}
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                               cust.status === 'active'
-                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                ? 'bg-slate-800 text-slate-300 border-slate-700'
                                 : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${cust.status === 'active' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                              {cust.status === 'active' ? 'AKUN AKTIF' : 'TERISOLIR'}
+                            }`}
+                              title={cust.status === 'active' ? 'Akun tersimpan aktif di database billing' : 'Akun diblokir / terisolir'}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${cust.status === 'active' ? 'bg-blue-400' : 'bg-rose-400'}`} />
+                              {cust.status === 'active' ? 'Akun Terdaftar' : 'Terisolir'}
                             </span>
 
                             {/* Status Koneksi Real-Time Router MikroTik */}
@@ -552,17 +581,21 @@ export const PPPDHCPView: React.FC = () => {
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                 Online (Dial-in)
                               </span>
+                            ) : !isRouterOnline ? (
+                              <span
+                                className="text-[9.5px] font-semibold text-rose-300 flex items-center gap-1 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-500/40"
+                                title="Router MikroTik belum terhubung / offline. Silakan hubungkan router di menu MikroTik / RADIUS."
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                Offline (Router Belum Konek)
+                              </span>
                             ) : (
                               <span
                                 className="text-[9.5px] font-medium text-slate-400 flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-700/60"
-                                title={
-                                  !isRouterOnline
-                                    ? "Router MikroTik belum terhubung / offline. Silakan hubungkan router di menu MikroTik."
-                                    : "Akun Secret terdaftar di database, namun modem/router ONT pelanggan belum dial-in ke MikroTik"
-                                }
+                                title="Router MikroTik online, namun modem/ONT pelanggan belum melakukan dial-in PPPoE."
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                                {!isRouterOnline ? 'Offline (MikroTik Belum Konek)' : 'Offline (Belum Konek)'}
+                                Offline (Modem Belum Konek)
                               </span>
                             )}
                           </div>

@@ -448,9 +448,9 @@ export const CustomerListView: React.FC = () => {
                           return (
                             <div className="flex flex-col gap-1 items-start">
                               {cust.status === 'active' && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/15 text-white border border-blue-500/30">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
-                                  Aktif
+                                  Langganan Aktif
                                 </span>
                               )}
                               {cust.status === 'isolated' && (
@@ -474,17 +474,25 @@ export const CustomerListView: React.FC = () => {
 
                               {/* Indikator Real-time Dial-in MikroTik */}
                               {isOnline ? (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-bold text-white bg-blue-950/70 px-1.5 py-0.5 rounded border border-blue-500/30">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/40">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                   Online (Dial-in)
+                                </span>
+                              ) : !isRouterOnline ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[9px] font-semibold text-rose-300 bg-rose-950/80 px-1.5 py-0.5 rounded border border-rose-500/40"
+                                  title="Router MikroTik belum terhubung / offline. Hubungkan router via VPN/skrip terlebih dahulu."
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                  Offline (Router Belum Konek)
                                 </span>
                               ) : (
                                 <span
                                   className="inline-flex items-center gap-1 text-[9px] font-medium text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800"
-                                  title={!isRouterOnline ? "Router MikroTik belum terhubung / offline" : "Modem/ONT belum dial-in ke MikroTik"}
+                                  title="Modem/ONT pelanggan belum melakukan dial-in PPPoE ke MikroTik"
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                                  {!isRouterOnline ? 'Offline (No MikroTik)' : 'Offline (Belum Dial-in)'}
+                                  Offline (Modem Belum Konek)
                                 </span>
                               )}
                             </div>

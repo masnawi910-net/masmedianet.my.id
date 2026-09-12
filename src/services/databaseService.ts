@@ -78,7 +78,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const isQuota =
     (error as any)?.code === 'resource-exhausted' ||
     errMsg.includes('Quota limit exceeded') ||
-    errMsg.includes('resource-exhausted');
+    errMsg.includes('resource-exhausted') ||
+    errMsg.includes('Write stream exhausted') ||
+    errMsg.includes('maximum allowed queued writes') ||
+    errMsg.includes('maximum backoff delay');
 
   if (isQuota) {
     markFirestoreQuotaExceeded();
@@ -116,7 +119,14 @@ export async function testConnection(): Promise<boolean> {
     return true;
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    if ((error as any)?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
+    if (
+      (error as any)?.code === 'resource-exhausted' ||
+      errMsg.includes('Quota limit exceeded') ||
+      errMsg.includes('resource-exhausted') ||
+      errMsg.includes('Write stream exhausted') ||
+      errMsg.includes('maximum allowed queued writes') ||
+      errMsg.includes('maximum backoff delay')
+    ) {
       markFirestoreQuotaExceeded();
       return false;
     }
@@ -267,50 +277,150 @@ export function parseDatabaseBackupFile(file: File): Promise<DatabaseBackupPaylo
   });
 }
 
+// Rate limiting and in-flight write mutex to prevent write-stream overflow and backend contention
+let activeWritePromise: Promise<boolean> | null = null;
+let lastWriteTimestamp = 0;
+const MIN_WRITE_INTERVAL_MS = 6000; // Minimum 6s between Firestore document writes
+let lastPersistedFingerprint = '';
+
 /**
- * Persist app data snapshot to Cloud Firestore (with redundant fallback keys)
+ * Fast deterministic string hashing (djb2)
  */
-export async function syncToCloudFirestore(tenantId: string, data: any): Promise<boolean> {
-  if (isFirestoreQuotaExceeded()) {
+function fastHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * Computes a fingerprint of core business data, stripping volatile runtime values
+ * (such as CPU load, router ping, volatile timestamps) to eliminate redundant Firestore writes.
+ */
+export function computeBusinessDataFingerprint(data: any): string {
+  if (!data) return '';
+  const core = data.data || data;
+
+  const summary = {
+    c: (core.customers || []).map((c: any) => `${c.id}:${c.status}:${c.packageId}:${c.ipAddress}:${c.balance || 0}`).join('|'),
+    i: (core.invoices || []).map((i: any) => `${i.id}:${i.status}:${i.totalAmount}:${i.paidAt || ''}`).join('|'),
+    p: (core.packages || []).map((p: any) => `${p.id}:${p.name}:${p.price}:${p.speedDown}:${p.speedUp}`).join('|'),
+    n: (core.nasList || []).map((n: any) => `${n.id}:${n.name}:${n.ipAddress}:${n.status}:${n.apiPort}`).join('|'),
+    f_olt: (core.ftthOLTs || []).length,
+    f_odp: (core.ftthODPs || []).length,
+    f_onu: (core.ftthONUs || []).length,
+    h_prf: (core.hotspotProfiles || []).length,
+    h_vch: (core.hotspotVouchers || []).length,
+    exp: (core.expenses || []).length,
+    tck: (core.tickets || []).length,
+    acc: (core.accounts || []).length,
+    isp: core.ispProfile ? `${core.ispProfile.companyName}:${core.ispProfile.email}:${core.ispProfile.phone}` : '',
+    qris: core.qrisConfig ? `${core.qrisConfig.merchantName}:${core.qrisConfig.isActive}` : '',
+    isolir: core.isolirConfig ? `${core.isolirConfig.autoIsolirEnabled}:${core.isolirConfig.isolirProfile}` : '',
+  };
+
+  return fastHash(JSON.stringify(summary));
+}
+
+export function setLastPersistedFingerprint(data: any): void {
+  lastPersistedFingerprint = computeBusinessDataFingerprint(data);
+}
+
+/**
+ * Persist app data snapshot to Cloud Firestore (with redundant fallback keys and anti-exhaustion safeguards)
+ */
+export async function syncToCloudFirestore(tenantId: string, data: any, force = false): Promise<boolean> {
+  if (isFirestoreQuotaExceeded() && !force) {
     return false;
+  }
+
+  // Compute business data fingerprint
+  const currentFingerprint = computeBusinessDataFingerprint(data);
+  if (!force && lastPersistedFingerprint && currentFingerprint === lastPersistedFingerprint) {
+    // Data is identical, skip writing to Firestore to preserve stream queue and daily write limits
+    return true;
+  }
+
+  // Check rate limit interval
+  const now = Date.now();
+  if (!force && now - lastWriteTimestamp < MIN_WRITE_INTERVAL_MS) {
+    return true;
+  }
+
+  // If another write is actively in progress, wait for it before starting
+  if (activeWritePromise) {
+    try {
+      await activeWritePromise;
+    } catch {
+      // ignore
+    }
   }
 
   const targetTenant = tenantId || 'tenant-masmedia';
-  try {
-    // Sanitize payload to prevent Firestore 1MB limits
-    const sanitizedData = {
-      ...data,
-      activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs.slice(-100) : [],
-      commandQueue: Array.isArray(data.commandQueue) ? data.commandQueue.slice(-50) : [],
-      // Strip high-frequency volatile active sessions from cloud snapshots to save write quota
-      activeSessions: [],
-    };
 
-    const payloadToSave = {
-      payload: {
-        ...sanitizedData,
-        // Wrap with standard data container if needed
-        data: sanitizedData.data ? sanitizedData.data : sanitizedData,
-      },
-      lastSyncedAt: new Date().toISOString(),
-      tenantId: targetTenant,
-    };
+  const executeWrite = async (): Promise<boolean> => {
+    try {
+      // Sanitize payload to prevent Firestore 1MB limits
+      const sanitizedData = {
+        ...data,
+        activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs.slice(-100) : [],
+        commandQueue: Array.isArray(data.commandQueue) ? data.commandQueue.slice(-50) : [],
+        // Strip volatile active sessions from cloud snapshots
+        activeSessions: [],
+      };
 
-    // Save to target tenant document without duplicate double-writes
-    const docKey = targetTenant === 'master_masmedia_production' ? 'master_masmedia_production' : targetTenant;
-    const docRef = doc(db, 'system_tenants', docKey);
-    await setDoc(docRef, payloadToSave, { merge: true });
+      const payloadToSave = {
+        payload: {
+          ...sanitizedData,
+          data: sanitizedData.data ? sanitizedData.data : sanitizedData,
+        },
+        lastSyncedAt: new Date().toISOString(),
+        tenantId: targetTenant,
+      };
 
-    return true;
-  } catch (err: any) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
-      markFirestoreQuotaExceeded();
+      const docKey = targetTenant === 'master_masmedia_production' ? 'master_masmedia_production' : targetTenant;
+      const docRef = doc(db, 'system_tenants', docKey);
+
+      // 12-second timeout to prevent hung write streams from jamming the SDK queue
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore write timeout (12s exceeded)')), 12000)
+      );
+
+      await Promise.race([
+        setDoc(docRef, payloadToSave, { merge: true }),
+        timeoutPromise,
+      ]);
+
+      lastWriteTimestamp = Date.now();
+      lastPersistedFingerprint = currentFingerprint;
+      return true;
+    } catch (err: any) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isResourceExhausted =
+        err?.code === 'resource-exhausted' ||
+        errMsg.includes('resource-exhausted') ||
+        errMsg.includes('Write stream exhausted') ||
+        errMsg.includes('maximum allowed queued writes') ||
+        errMsg.includes('Quota limit exceeded') ||
+        errMsg.includes('maximum backoff delay');
+
+      if (isResourceExhausted) {
+        markFirestoreQuotaExceeded(15 * 60 * 1000); // 15-minute cooldown
+        console.warn(
+          '[CloudSync] Batas antrean write stream Firestore tercapai (resource-exhausted). Penyimpanan dialihkan ke IndexedDB & LocalStorage lokal.'
+        );
+        return false;
+      }
+      handleFirestoreError(err, OperationType.WRITE, `system_tenants/${targetTenant}`);
       return false;
+    } finally {
+      activeWritePromise = null;
     }
-    handleFirestoreError(err, OperationType.WRITE, `system_tenants/${targetTenant}`);
-    return false;
-  }
+  };
+
+  activeWritePromise = executeWrite();
+  return activeWritePromise;
 }
 
 /**
@@ -340,13 +450,22 @@ export async function loadFromCloudFirestore(tenantId?: string): Promise<any | n
         const payload = rawData?.payload;
         if (payload) {
           console.info(`[CloudFirestore] Berhasil memuat data tersimpan dari key: ${key}`);
+          setLastPersistedFingerprint(payload);
           return payload;
         }
       }
     } catch (err: any) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (err?.code === 'resource-exhausted' || errMsg.includes('Quota limit exceeded') || errMsg.includes('resource-exhausted')) {
-        markFirestoreQuotaExceeded();
+      const isResourceExhausted =
+        err?.code === 'resource-exhausted' ||
+        errMsg.includes('resource-exhausted') ||
+        errMsg.includes('Write stream exhausted') ||
+        errMsg.includes('maximum allowed queued writes') ||
+        errMsg.includes('Quota limit exceeded') ||
+        errMsg.includes('maximum backoff delay');
+
+      if (isResourceExhausted) {
+        markFirestoreQuotaExceeded(15 * 60 * 1000);
         return null;
       }
       handleFirestoreError(err, OperationType.GET, `system_tenants/${key}`);

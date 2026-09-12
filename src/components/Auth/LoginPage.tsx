@@ -50,7 +50,13 @@ export const LoginPage: React.FC = () => {
   const isDark = theme === 'dark';
 
   // Login form state
-  const [identifierInput, setIdentifierInput] = useState('');
+  const [identifierInput, setIdentifierInput] = useState(() => {
+    try {
+      return localStorage.getItem('netradius_remembered_identifier') || '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -293,6 +299,19 @@ export const LoginPage: React.FC = () => {
         setErrorMsg(res.message || 'Nama pengguna/email atau password yang dimasukkan salah!');
         setIsLoading(false);
       } else {
+        if (rememberMe && identifierInput.trim()) {
+          try {
+            localStorage.setItem('netradius_remembered_identifier', identifierInput.trim());
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            localStorage.removeItem('netradius_remembered_identifier');
+          } catch (e) {
+            console.error(e);
+          }
+        }
         setIsLoading(false);
       }
     }, 300);

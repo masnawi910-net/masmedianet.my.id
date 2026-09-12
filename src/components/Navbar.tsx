@@ -227,22 +227,29 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* MikroTik Status Chips on Large Screens */}
             <div className="hidden xl:flex items-center gap-2">
-              {nasList.map(nas => (
-                <div
-                  key={nas.id}
-                  onClick={() => setActiveTab('mikrotik')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs cursor-pointer transition-colors border ${
-                    isDark
-                      ? 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                      : 'bg-pink-950/70 hover:bg-pink-900/80 border-pink-500/40 text-white'
-                  }`}
-                  title={`${nas.name} (${nas.ipAddress}) - CPU: ${nas.cpuLoad}% - Klik untuk Buka Manajemen Router`}
-                >
-                  <Server className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-pink-300'}`} />
-                  <span className="font-medium truncate max-w-[90px] text-[11px]">{nas.name}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                </div>
-              ))}
+              {nasList.map(nas => {
+                const isOnline = nas.status === 'online';
+                return (
+                  <div
+                    key={nas.id}
+                    onClick={() => setActiveTab('mikrotik')}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs cursor-pointer transition-colors border ${
+                      isOnline
+                        ? isDark
+                          ? 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
+                          : 'bg-pink-950/70 hover:bg-pink-900/80 border-pink-500/40 text-white'
+                        : isDark
+                        ? 'bg-rose-950/40 hover:bg-rose-900/50 border-rose-800/40 text-rose-300'
+                        : 'bg-rose-950/60 hover:bg-rose-900/70 border-rose-500/40 text-rose-200'
+                    }`}
+                    title={`${nas.name} (${nas.ipAddress}) - Status: ${isOnline ? `ONLINE - CPU: ${nas.cpuLoad}%` : 'OFFLINE (Belum Terhubung)'} - Klik untuk Buka Manajemen Router`}
+                  >
+                    <Server className={`w-3.5 h-3.5 ${isOnline ? (isDark ? 'text-slate-400' : 'text-pink-300') : 'text-rose-400'}`} />
+                    <span className="font-medium truncate max-w-[90px] text-[11px]">{nas.name}</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+                  </div>
+                );
+              })}
             </div>
 
             {/* Cloud Firestore Persistence Status Indicator */}

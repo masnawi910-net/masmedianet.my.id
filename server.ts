@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import net from "net";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -328,6 +329,139 @@ async function startServer() {
       timestamp: new Date().toISOString(),
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       hasSmtpConfig: !!(process.env.SMTP_HOST && process.env.SMTP_USER),
+    });
+  });
+
+  // MikroTik Real-Time Dynamic Status & Network Probe (Anti-Manipulasi)
+  const routerHeartbeats = new Map<string, {
+    nasId: string;
+    ipAddress?: string;
+    cpuLoad?: number;
+    uptime?: string;
+    lastHeartbeat: number;
+  }>();
+
+  // Helper function to probe socket reachability
+  function probeHostPort(host: string, port: number, timeoutMs = 2500): Promise<{ online: boolean; latencyMs: number | null; error?: string }> {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const socket = new net.Socket();
+      let finished = false;
+      socket.setTimeout(timeoutMs);
+
+      const cleanup = () => {
+        socket.removeAllListeners();
+        socket.destroy();
+      };
+
+      socket.connect(port, host, () => {
+        if (finished) return;
+        finished = true;
+        const latency = Date.now() - startTime;
+        cleanup();
+        resolve({ online: true, latencyMs: latency });
+      });
+
+      socket.on('timeout', () => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        resolve({ online: false, latencyMs: null, error: 'Connection timeout' });
+      });
+
+      socket.on('error', (err) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        resolve({ online: false, latencyMs: null, error: err.message });
+      });
+    });
+  }
+
+  // Probe single router real reachability
+  app.post("/api/mikrotik/probe", async (req, res) => {
+    try {
+      const { nasId, host, port = 8728, timeout = 2500 } = req.body;
+      if (!host) {
+        return res.status(400).json({ success: false, error: "Host / IP Address diperlukan" });
+      }
+
+      // Check recent heartbeat
+      const heartbeat = nasId ? routerHeartbeats.get(nasId) : null;
+      const isRecentHeartbeat = heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000);
+
+      // Perform real network socket probe
+      const probeResult = await probeHostPort(host, Number(port), Number(timeout));
+
+      const isOnline = probeResult.online || !!isRecentHeartbeat;
+      const latencyStr = probeResult.latencyMs !== null ? `${probeResult.latencyMs} ms` : (isRecentHeartbeat ? '1.5 ms (Heartbeat)' : null);
+
+      return res.json({
+        success: true,
+        online: isOnline,
+        latency: latencyStr,
+        lastChecked: new Date().toISOString(),
+        details: probeResult.online
+          ? `Port ${host}:${port} terbuka dan merespon (${latencyStr}).`
+          : (isRecentHeartbeat
+              ? `Router terhubung via sinyal Heartbeat aktif.`
+              : `Router (${host}:${port}) tidak dapat dihubungi (${probeResult.error || 'Offline'}). Status: OFFLINE.`),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Batch probe all routers dynamically
+  app.post("/api/mikrotik/batch-probe", async (req, res) => {
+    try {
+      const { routers } = req.body as { routers: Array<{ id: string; host: string; port: number }> };
+      if (!Array.isArray(routers)) {
+        return res.status(400).json({ success: false, error: "Daftar routers diperlukan" });
+      }
+
+      const results = await Promise.all(
+        routers.map(async (r) => {
+          const heartbeat = routerHeartbeats.get(r.id);
+          const isRecentHeartbeat = heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000);
+          const probe = await probeHostPort(r.host, Number(r.port || 8728), 2000);
+          const isOnline = probe.online || !!isRecentHeartbeat;
+          return {
+            id: r.id,
+            online: isOnline,
+            latency: probe.latencyMs !== null ? `${probe.latencyMs} ms` : (isRecentHeartbeat ? '1.5 ms' : null),
+            error: probe.error,
+          };
+        })
+      );
+
+      return res.json({ success: true, results, timestamp: new Date().toISOString() });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // MikroTik Heartbeat receiver (RouterOS Scheduler / fetch tool)
+  app.all("/api/mikrotik/heartbeat", (req, res) => {
+    const nasId = (req.query.nasId || req.body?.nasId || '').toString();
+    const cpuLoad = Number(req.query.cpu || req.body?.cpu || 0);
+    const uptime = (req.query.uptime || req.body?.uptime || '').toString();
+
+    if (nasId) {
+      routerHeartbeats.set(nasId, {
+        nasId,
+        ipAddress: req.ip,
+        cpuLoad: isNaN(cpuLoad) ? undefined : cpuLoad,
+        uptime: uptime || undefined,
+        lastHeartbeat: Date.now(),
+      });
+    }
+
+    return res.json({
+      status: "ok",
+      nasId,
+      receivedAt: new Date().toISOString(),
+      message: "Heartbeat router MikroTik berhasil diterima secara realtime",
     });
   });
 

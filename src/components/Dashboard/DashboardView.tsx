@@ -18,6 +18,7 @@ import {
   CreditCard,
   ChevronRight,
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../../utils/formatters';
 import {
@@ -49,6 +50,7 @@ export const DashboardView: React.FC = () => {
     setSelectedInvoiceId,
     currentTenant,
     currentUser,
+    pingRouter,
   } = useApp();
 
   const tenantPlan = currentTenant?.plan || 'starter';
@@ -219,10 +221,16 @@ export const DashboardView: React.FC = () => {
             <span className="text-xs text-white font-bold bg-blue-950/70 px-2.5 py-1 rounded-full border border-blue-400/40">PPPoE & Hotspot</span>
           </div>
           <div className="mt-4 pt-3 border-t border-blue-700/40 flex items-center justify-between text-xs text-slate-200">
-            <span>Traffic: <strong className="text-white font-bold">142.5 Mbps</strong></span>
-            <span className="text-white font-bold flex items-center gap-1.5 bg-blue-950/70 px-2 py-0.5 rounded-full border border-blue-400/30">
-              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" /> 2 Online
-            </span>
+            <span>Traffic: <strong className="text-white font-bold">{stats.activeSessionsCount > 0 ? `${stats.totalThroughputMbps} Mbps` : '0 Mbps'}</strong></span>
+            {stats.activeSessionsCount > 0 ? (
+              <span className="text-white font-bold flex items-center gap-1.5 bg-blue-950/70 px-2 py-0.5 rounded-full border border-blue-400/30">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" /> {stats.activeSessionsCount} Online
+              </span>
+            ) : (
+              <span className="text-slate-300 font-medium flex items-center gap-1.5 bg-slate-900/80 px-2 py-0.5 rounded-full border border-slate-700/60">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" /> 0 Sesi Online
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -245,54 +253,106 @@ export const DashboardView: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {nasList.map(nas => (
-            <div
-              key={nas.id}
-              className="bg-slate-950/70 border border-slate-700/60 rounded-xl p-4 hover:border-cyan-400/50 transition-all shadow-xs"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center shadow-xs">
-                    <Server className="w-5 h-5 text-white" />
+          {nasList.map(nas => {
+            const isOnline = nas.status === 'online';
+            const livePppoeCount = isOnline
+              ? activeSessions.filter(s => s.service === 'pppoe' && (s.nasIp === nas.ipAddress || !s.nasIp)).length
+              : 0;
+
+            return (
+              <div
+                key={nas.id}
+                className={`border rounded-xl p-4 transition-all shadow-xs ${
+                  isOnline
+                    ? 'bg-slate-950/70 border-slate-700/60 hover:border-cyan-400/50'
+                    : 'bg-slate-950/90 border-rose-900/50 hover:border-rose-500/50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-xs border ${
+                      isOnline ? 'bg-slate-900 border-slate-700 text-white' : 'bg-rose-950/40 border-rose-800/60 text-rose-400'
+                    }`}>
+                      <Server className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        {nas.name}
+                        {!isOnline && (
+                          <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-600/40">
+                            Offline
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-300 font-mono">{nas.ipAddress}:{nas.apiPort} &bull; {nas.model}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isOnline ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-400/40">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
+                        Online
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-950/80 text-rose-300 border border-rose-500/40">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" />
+                        Offline (Belum Terhubung)
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => pingRouter(nas.id)}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-semibold border border-slate-700 bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                      title="Uji konektivitas ping & API router secara realtime (tanpa manipulasi manual)"
+                    >
+                      <RefreshCw className="w-3 h-3 text-cyan-400" />
+                      Uji Ping
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-800 text-xs">
+                  <div>
+                    <span className="text-slate-300 block font-medium">CPU Load</span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            !isOnline ? 'bg-slate-600' : nas.cpuLoad > 70 ? 'bg-red-400' : nas.cpuLoad > 40 ? 'bg-amber-400' : 'bg-emerald-400'
+                          }`}
+                          style={{ width: `${isOnline ? nas.cpuLoad : 0}%` }}
+                        />
+                      </div>
+                      <span className="font-mono font-bold text-white">{isOnline ? `${nas.cpuLoad}%` : '0%'}</span>
+                    </div>
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">{nas.name}</h4>
-                    <p className="text-xs text-slate-300 font-mono">{nas.ipAddress}:{nas.apiPort} &bull; {nas.model}</p>
+                    <span className="text-slate-300 block font-medium">PPPoE Aktif</span>
+                    <span className="font-mono font-bold text-white">{isOnline ? `${livePppoeCount} user` : '0 user'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-300 block font-medium">Uptime</span>
+                    <span className="font-mono text-slate-200 truncate block font-medium">
+                      {isOnline ? nas.uptime : 'Offline (Belum Terhubung)'}
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-950/80 text-white border border-blue-400/40">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5 animate-pulse" />
-                    Online
-                  </span>
-                </div>
               </div>
-
-              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-800 text-xs">
-                <div>
-                  <span className="text-slate-300 block font-medium">CPU Load</span>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${nas.cpuLoad > 70 ? 'bg-red-400' : nas.cpuLoad > 40 ? 'bg-amber-400' : 'bg-blue-400'}`}
-                        style={{ width: `${nas.cpuLoad}%` }}
-                      />
-                    </div>
-                    <span className="font-mono font-bold text-white">{nas.cpuLoad}%</span>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-slate-300 block font-medium">PPPoE Aktif</span>
-                  <span className="font-mono font-bold text-white">{nas.activePppoeCount} user</span>
-                </div>
-                <div>
-                  <span className="text-slate-300 block font-medium">Uptime</span>
-                  <span className="font-mono text-slate-200 truncate block font-medium">{nas.uptime}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {nasList.length === 0 && (
+          <div className="text-center py-6 text-slate-400 text-xs bg-slate-950/50 rounded-xl border border-dashed border-slate-800">
+            Belum ada router MikroTik NAS yang didaftarkan.{' '}
+            <button
+              onClick={() => setActiveTab('radius-setting')}
+              className="text-cyan-400 hover:underline font-bold"
+            >
+              Daftarkan Router Sekarang &rarr;
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Charts Section */}
@@ -504,31 +564,41 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="space-y-2.5">
-            {activeSessions.slice(0, 5).map(session => (
-              <div
-                key={session.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-slate-950/75 border border-blue-500/20 hover:border-blue-400/40 transition-all shadow-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-white">{session.customerName}</span>
-                      <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-slate-900 text-blue-300 border border-blue-500/30">
-                        {session.service}
-                      </span>
+            {activeSessions.length === 0 ? (
+              <div className="text-center py-6 px-4 bg-slate-950/50 rounded-xl border border-blue-900/30 text-xs text-slate-300">
+                <Wifi className="w-5 h-5 text-slate-500 mx-auto mb-1.5" />
+                <p className="font-semibold text-white">Tidak Ada Sesi Dial-in Aktif (0 User Online)</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Sesi online akan muncul otomatis saat router MikroTik terhubung dan modem pelanggan melakukan dial-in PPPoE.
+                </p>
+              </div>
+            ) : (
+              activeSessions.slice(0, 5).map(session => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/75 border border-blue-500/20 hover:border-blue-400/40 transition-all shadow-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-white">{session.customerName}</span>
+                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-slate-900 text-blue-300 border border-blue-500/30">
+                          {session.service}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 font-mono mt-0.5">
+                        IP: {session.ipAddress} &bull; Uptime: {session.uptime}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-300 font-mono mt-0.5">
-                      IP: {session.ipAddress} &bull; Uptime: {session.uptime}
-                    </p>
+                  </div>
+                  <div className="text-right font-mono text-xs">
+                    <span className="text-blue-300 block font-bold">↓ {session.rxRate}</span>
+                    <span className="text-slate-300 font-medium">↑ {session.txRate}</span>
                   </div>
                 </div>
-                <div className="text-right font-mono text-xs">
-                  <span className="text-blue-300 block font-bold">↓ {session.rxRate}</span>
-                  <span className="text-slate-300 font-medium">↑ {session.txRate}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

@@ -816,14 +816,22 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => pingRouter(nas.id)}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1 border border-slate-700"
-                      title="Ping Test"
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1 border border-slate-700 cursor-pointer"
+                      title="Ping Test & Sinkronisasi Realtime"
                     >
                       <RefreshCw className="w-3.5 h-3.5 text-white" /> Ping
                     </button>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-white border border-blue-500/30">
-                      {nas.status.toUpperCase()} (12ms)
-                    </span>
+                    {nas.status === 'online' ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
+                        ONLINE ({nas.lastPing || '12ms'})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" />
+                        OFFLINE (Belum Terhubung)
+                      </span>
+                    )}
                   </div>
                 </div>
 

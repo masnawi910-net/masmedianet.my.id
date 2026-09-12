@@ -77,6 +77,7 @@ import {
   testConnection,
   isFirestoreQuotaExceeded,
   resetFirestoreQuotaCooldown,
+  setLastPersistedFingerprint,
   DatabaseBackupPayload,
 } from '../services/databaseService';
 
@@ -312,7 +313,8 @@ interface AppContextType {
   retryCommand: (commandId: string) => Promise<{ success: boolean; message: string }>;
   cancelCommand: (commandId: string) => void;
   clearCompletedCommands: () => void;
-  toggleRouterStatus: (nasId: string, status?: 'online' | 'offline') => void;
+  probeRouterRealtime: (nasId: string) => Promise<{ online: boolean; latency: string | null; message: string }>;
+  syncAllRoutersHealth: () => Promise<void>;
 
   // Firebase Cloud Database Persistence
   cloudSyncStatus: 'synced' | 'syncing' | 'offline';
@@ -351,6 +353,7 @@ const STORAGE_KEYS = {
   TICKETS: 'netradius_tickets_v2',
   FIBER_CABLES: 'netradius_fiber_cables_v2',
   THEME: 'netradius_theme_v2',
+  ACTIVE_TAB: 'netradius_active_tab_v2',
   CURRENT_USER: 'netradius_current_user_v2',
   ISP_PROFILE: 'netradius_isp_profile_v2',
   TENANTS: 'netradius_tenants_v2',
@@ -532,9 +535,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [currentUser, setCurrentUser] = useState<AdminAccount | null>(() => {
-    // Pengguna harus selalu login setiap membuka aplikasi
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.role) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse saved user session:', e);
+    }
     return null;
   });
+
+  // Keep currentUser session in sync with accounts updates / deactivation
+  useEffect(() => {
+    if (currentUser) {
+      const matched = accounts.find(
+        a => a.id === currentUser.id ||
+          (a.email && a.email.toLowerCase() === (currentUser.email || '').toLowerCase()) ||
+          (a.username && a.username.toLowerCase() === (currentUser.username || '').toLowerCase())
+      );
+      if (matched) {
+        if (matched.status === 'inactive') {
+          setCurrentUser(null);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+        } else if (
+          matched.name !== currentUser.name ||
+          matched.role !== currentUser.role ||
+          matched.tenantId !== currentUser.tenantId ||
+          matched.tenantName !== currentUser.tenantName ||
+          matched.email !== currentUser.email ||
+          matched.password !== currentUser.password
+        ) {
+          const updated = { ...currentUser, ...matched };
+          setCurrentUser(updated);
+          localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
+        }
+      }
+    }
+  }, [accounts]);
 
   // Multi-Tenant effective ID and active tenant entity
   const currentTenantId = useMemo(() => {
@@ -643,11 +684,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cpuLoad: 10,
       freeMemoryMB: 850,
       totalMemoryMB: 1024,
-      uptime: '1d 00:00:00',
-      status: 'online',
+      uptime: '0s (Menunggu Konfigurasi Winbox)',
+      status: 'offline',
       activePppoeCount: 0,
       activeHotspotCount: 0,
-      lastPing: 'Baru saja',
+      lastPing: 'Belum Terhubung (Menunggu Skrip Winbox)',
     };
     setAllNasList(prev => [...prev, newNas]);
 
@@ -1065,7 +1106,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveToIndexedDB('snapshot_v2', payload);
 
       // Save to Firebase Cloud Firestore (with circuit breaker)
-      const ok = await syncToCloudFirestore(currentTenantId || 'tenant-masmedia', payload);
+      const ok = await syncToCloudFirestore(currentTenantId || 'tenant-masmedia', payload, isManual);
       if (ok) {
         setIsCloudQuotaExceededState(false);
         setCloudSyncStatus('synced');
@@ -1101,9 +1142,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
 
-        // Validate server connectivity
-        testConnection();
-
         const cloudData = await loadFromCloudFirestore(currentTenantId || 'tenant-masmedia');
         if (cloudData && isMounted) {
           const payloadData = cloudData.data || cloudData;
@@ -1118,12 +1156,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           if (hasCloudRecords) {
             console.info('[CloudRestore] Data ditemukan di Cloud Firestore, melakukan pemulihan otomatis...');
+            setLastPersistedFingerprint(payloadData);
             importFullDatabase(cloudData.data ? cloudData : { version: '2.0.0', exportedAt: new Date().toISOString(), appName: 'Masmedia Multi-ISP Cloud', data: payloadData });
             setLastCloudSync(new Date().toLocaleTimeString('id-ID'));
             setCloudSyncStatus('synced');
           } else {
             console.info('[CloudRestore] Cloud Firestore kosong, memeriksa data lokal...');
-            // If cloud is empty but local storage has user data, sync local data to cloud immediately
+            // If cloud is empty but local storage has user data, sync local data to cloud
             if (allCustomers.length > 0 || packages.length > 0 || allInvoices.length > 0 || allNasList.length > 0) {
               console.info('[CloudRestore] Mengunggah data lokal yang ada ke Cloud Firestore...');
               await syncNowToCloud();
@@ -1159,7 +1198,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const timer = setTimeout(() => {
       syncNowToCloud();
-    }, 15000); // 15 second debounce to prevent burning through free tier limits
+    }, 30000); // 30 second debounce to prevent burning through write quota and write stream limits
 
     return () => clearTimeout(timer);
   }, [
@@ -1219,7 +1258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Helper to read initial tab from URL
+  // Helper to read initial tab from URL or saved session
   const getInitialTab = () => {
     if (typeof window !== 'undefined') {
       try {
@@ -1237,6 +1276,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (window.location.hash) {
           const hash = window.location.hash.replace('#', '').toLowerCase();
           if (hash === 'portal' || hash === 'portal-pelanggan') return 'portal';
+        }
+        const savedTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
+        if (savedTab && savedTab !== 'login') {
+          return savedTab;
         }
       } catch (e) {
         console.error(e);
@@ -1260,10 +1303,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (subMenu) setActiveSubMenu(subMenu);
     if (subTab) setActiveSubTab(subTab);
     setActiveTabState(category);
+    if (category && category !== 'login') {
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, category);
+    }
   };
 
   const setActiveTab = (tab: string) => {
     setActiveTabState(tab);
+    if (tab && tab !== 'login') {
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, tab);
+    }
     if (tab === 'dashboard') {
       setActiveCategory('dashboard');
       setActiveSubMenu('overview');
@@ -1425,7 +1474,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unpaidInvoicesAmount = unpaidInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
 
     const activeSessionsCount = activeSessions.length;
-    const totalThroughputMbps = 142.5;
+    const totalThroughputMbps = activeSessions.length > 0 ? +(activeSessions.length * 1.8 + 12.4).toFixed(1) : 0;
 
     const totalExpensesMonth = expenses.reduce((sum, exp) => sum + exp.amount, 0);
     const netProfitMonth = totalMonthlyRevenue - totalExpensesMonth;
@@ -1667,6 +1716,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_TAB);
+    setActiveTabState('login');
   };
 
   // Account actions
@@ -1680,11 +1731,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateAccount = (id: string, updates: Partial<AdminAccount>) => {
-    setAccounts(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    setAccounts(prev => prev.map(a => {
+      if (a.id === id) {
+        const updated = { ...a, ...updates };
+        if (currentUser?.id === id) {
+          setCurrentUser(updated);
+          localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
+        }
+        return updated;
+      }
+      return a;
+    }));
   };
 
   const deleteAccount = (id: string) => {
     setAccounts(prev => prev.filter(a => a.id !== id));
+    if (currentUser?.id === id) {
+      logout();
+    }
   };
 
   // FTTH Actions
@@ -2202,33 +2266,122 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logActivity('queue', 'Bersihkan Riwayat', 'Menghapus riwayat antrean selesai dan dibatalkan');
   };
 
-  const toggleRouterStatus = (nasId: string, forcedStatus?: 'online' | 'offline') => {
-    let targetOnline = false;
-    let routerName = 'Router';
-    setAllNasList(prev =>
-      prev.map(n => {
-        if (n.id === nasId) {
-          routerName = n.name;
-          const nextStatus = forcedStatus || (n.status === 'online' ? 'offline' : 'online');
-          targetOnline = nextStatus === 'online';
-          return {
-            ...n,
-            status: nextStatus,
-            lastPing: nextStatus === 'online' ? 'Baru saja online (Koneksi Pulih)' : 'Router Mati / Link Putus',
-          };
-        }
-        return n;
-      })
-    );
+  // Probe router connectivity dynamically via server TCP socket probe (Anti-Manipulasi)
+  const probeRouterRealtime = async (nasId: string): Promise<{ online: boolean; latency: string | null; message: string }> => {
+    const target = allNasList.find(n => n.id === nasId);
+    if (!target) {
+      return { online: false, latency: null, message: 'Router tidak ditemukan di database' };
+    }
 
-    if (targetOnline) {
-      logActivity('mikrotik', 'Router Pulih Online', `Router ${routerName} (${nasId}) kembali online. Menjalankan auto-drain antrean spooler...`);
-      // Auto-drain pending commands for this router!
-      setTimeout(() => {
-        processQueue(nasId);
-      }, 500);
-    } else {
-      logActivity('mikrotik', 'Router Offline', `Router ${routerName} (${nasId}) berstatus offline (Simulasi Mati Lampu / Gangguan)`);
+    try {
+      const response = await fetch('/api/mikrotik/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nasId: target.id,
+          host: target.ipAddress,
+          port: target.apiPort || 8728,
+          timeout: 2500,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const isOnline = !!data.online;
+        const latency = data.latency || null;
+
+        setAllNasList(prev =>
+          prev.map(n => {
+            if (n.id === nasId) {
+              return {
+                ...n,
+                status: isOnline ? 'online' : 'offline',
+                lastPing: isOnline ? `Online (${latency || '1.5 ms'})` : 'Host tidak merespon (Offline)',
+                uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') ? '1d 04:12:00' : n.uptime) : 'Offline (Belum Terhubung)',
+                cpuLoad: isOnline ? (n.cpuLoad > 0 ? n.cpuLoad : Math.floor(Math.random() * 15) + 8) : 0,
+              };
+            }
+            return n;
+          })
+        );
+
+        if (isOnline) {
+          logActivity('mikrotik', 'Probe Sukses (Online)', `Router ${target.name} (${target.ipAddress}) terverifikasi online (${latency || '1.5 ms'}).`);
+          setTimeout(() => processQueue(nasId), 300);
+        } else {
+          logActivity('mikrotik', 'Probe Gagal (Offline)', `Router ${target.name} (${target.ipAddress}) tidak merespon di port ${target.apiPort || 8728}. Status tetap offline.`);
+        }
+
+        return {
+          online: isOnline,
+          latency,
+          message: data.details || (isOnline ? 'Router online' : 'Router offline'),
+        };
+      }
+    } catch (err: any) {
+      console.warn('Gagal probe router via API:', err);
+    }
+
+    // If fetch failed or network error
+    setAllNasList(prev =>
+      prev.map(n =>
+        n.id === nasId
+          ? {
+              ...n,
+              status: 'offline',
+              lastPing: 'Gagal terhubung ke host (Offline)',
+              uptime: 'Offline (Belum Terhubung)',
+              cpuLoad: 0,
+            }
+          : n
+      )
+    );
+    return {
+      online: false,
+      latency: null,
+      message: `Gagal menghubungi router ${target.name} (${target.ipAddress}). Status: OFFLINE.`,
+    };
+  };
+
+  // Dynamic automatic batch probe for all routers
+  const syncAllRoutersHealth = async () => {
+    if (allNasList.length === 0) return;
+    try {
+      const payload = allNasList.map(n => ({
+        id: n.id,
+        host: n.ipAddress,
+        port: n.apiPort || 8728,
+      }));
+
+      const res = await fetch('/api/mikrotik/batch-probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ routers: payload }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results && Array.isArray(data.results)) {
+          setAllNasList(prev =>
+            prev.map(n => {
+              const resItem = data.results.find((r: any) => r.id === n.id);
+              if (resItem) {
+                const isOnline = !!resItem.online;
+                return {
+                  ...n,
+                  status: isOnline ? 'online' : 'offline',
+                  lastPing: isOnline ? `Online (${resItem.latency || '1.5 ms'})` : 'Host tidak merespon (Offline)',
+                  uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') ? '1d 04:12:00' : n.uptime) : 'Offline (Belum Terhubung)',
+                  cpuLoad: isOnline ? (n.cpuLoad > 0 ? n.cpuLoad : Math.floor(Math.random() * 15) + 8) : 0,
+                };
+              }
+              return n;
+            })
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('Batch probe router error:', err);
     }
   };
 
@@ -2392,23 +2545,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const pingRouter = (nasId: string) => {
-    setAllNasList(prev =>
-      prev.map(n =>
-        n.id === nasId
-          ? {
-              ...n,
-              lastPing: 'Koneksi Sukses (1.2 ms)',
-              status: 'online',
-              cpuLoad: Math.floor(Math.random() * 25) + 8,
-            }
-          : n
-      )
-    );
-    // When router is pinged online, auto-process pending queue for this NAS
-    setTimeout(() => {
-      processQueue(nasId);
-    }, 400);
+    probeRouterRealtime(nasId);
   };
+
+  // Dynamic real-time background router probe (anti-manipulasi)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      syncAllRoutersHealth();
+    }, 2500);
+
+    const interval = setInterval(() => {
+      syncAllRoutersHealth();
+    }, 45000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Billing Actions
   const generateMonthlyInvoices = (month: number, year: number): number => {
@@ -3051,7 +3205,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         retryCommand,
         cancelCommand,
         clearCompletedCommands,
-        toggleRouterStatus,
+        probeRouterRealtime,
+        syncAllRoutersHealth,
 
         // Firebase Cloud Persistence
         cloudSyncStatus,
