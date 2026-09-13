@@ -435,7 +435,7 @@ echo ">>> SELESAI! Seluruh ${vpnConfigs.length} Klien VPN Kini Aktif & Ter-forwa
             type="button"
             onClick={() => {
               openSaasMasterPdfGuide({
-                vpsIp: radiusServer?.ip || '103.187.99.50',
+                vpsIp: radiusServer?.ip || '103.49.239.150',
                 hostname: radiusServer?.hostname || 'vps-master.masmedianet.id',
                 secret: radiusServer?.secret || 'masmedia123',
                 authPort: radiusServer?.authPort || 1812,
@@ -1580,7 +1580,7 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 103.187.99.50"
+                  placeholder="e.g. 103.49.239.150"
                   value={vpsFormData.ip}
                   onChange={e => setVpsFormData(prev => ({ ...prev, ip: e.target.value }))}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-amber-300 font-mono text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-inner"
@@ -1700,7 +1700,7 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 space-y-1">
                 <div className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Perintah MikroTik Otomatis:</div>
                 <div className="text-emerald-400 select-all overflow-x-auto whitespace-pre">
-                  /radius add address={vpsFormData.ip.trim() || '103.187.99.50'} secret="{vpsFormData.secret.trim() || 'masmedia123'}" service=ppp,hotspot authentication-port={vpsFormData.authPort} accounting-port={vpsFormData.acctPort}
+                  /radius add address={vpsFormData.ip.trim() || '103.49.239.150'} secret="{vpsFormData.secret.trim() || 'masmedia123'}" service=ppp,hotspot authentication-port={vpsFormData.authPort} accounting-port={vpsFormData.acctPort}
                 </div>
               </div>
 

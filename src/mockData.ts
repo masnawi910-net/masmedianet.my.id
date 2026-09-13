@@ -777,11 +777,11 @@ export const initialHotspotTemplates: HotspotTemplate[] = [
 export const initialVPNConfigs: VPNConfig[] = [
   {
     id: 'VPN-01',
-    name: 'Router Utama Masmedia',
+    name: 'masmedia',
     type: 'wireguard',
     serverAddress: '103.49.239.150',
-    username: 'masmedia_core',
-    password: 'wg_client_masmedia_2026',
+    username: 'masmedia',
+    password: 'server@123',
     remoteIp: '10.200.0.10',
     localIp: '10.200.0.1',
     clientIp: '10.200.0.10/24',
@@ -799,11 +799,11 @@ export const initialVPNConfigs: VPNConfig[] = [
 ];
 
 export const initialRadiusServerConfig: RadiusServerConfig = {
-  serverHost: '103.187.99.50 (VPS Masmedia FreeRADIUS v3.2)',
+  serverHost: '103.49.239.150',
   authPort: 1812,
   acctPort: 1813,
   coaPort: 3799,
-  sharedSecret: 'masmedia_radius_secret_2026',
+  sharedSecret: 'Server@123',
   interimIntervalSeconds: 300,
   dictionaryType: 'MikroTik-MikroTik-Dictionary-v7',
   enableAccounting: true,

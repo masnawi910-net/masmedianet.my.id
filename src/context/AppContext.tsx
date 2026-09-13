@@ -193,6 +193,7 @@ interface AppContextType {
   // VPN & Radius Settings
   vpnConfigs: VPNConfig[];
   addVPN: (vpn: Omit<VPNConfig, 'id' | 'uptime' | 'rxBytes' | 'txBytes'>) => void;
+  updateVPN: (id: string, updates: Partial<VPNConfig>) => void;
   toggleVPN: (id: string) => void;
   deleteVPN: (id: string) => void;
   radiusServerConfig: RadiusServerConfig;
@@ -1969,6 +1970,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAllVpnConfigs(prev => [...prev, newVPN]);
   };
 
+  const updateVPN = (id: string, updates: Partial<VPNConfig>) => {
+    setAllVpnConfigs(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
+  };
+
   const toggleVPN = (id: string) => {
     setAllVpnConfigs(prev => prev.map(v => {
       if (v.id === id) {
@@ -3123,6 +3128,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         vpnConfigs,
         addVPN,
+        updateVPN,
         toggleVPN,
         deleteVPN,
         radiusServerConfig,

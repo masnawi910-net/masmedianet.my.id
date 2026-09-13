@@ -538,6 +538,7 @@ export interface VPNConfig {
   txBytes?: number;
   remoteWinboxPort?: number;
   remoteWebPort?: number;
+  serverPublicKey?: string;
   clientPublicKey?: string;
   clientPrivateKey?: string;
   clientPhone?: string;

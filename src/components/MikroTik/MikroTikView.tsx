@@ -76,7 +76,7 @@ export const MikroTikView: React.FC<MikroTikViewProps> = ({ initialTab = 'sessio
 
   // VPN Remote MasmediaGroup State - Centralized VPS Tunnel Generator
   const [vpnType, setVpnType] = useState<'sstp' | 'l2tp' | 'wireguard'>('sstp');
-  const [vpnServerHost, setVpnServerHost] = useState('103.187.99.50');
+  const [vpnServerHost, setVpnServerHost] = useState('103.49.239.150');
   const [vpnDomain, setVpnDomain] = useState('vpn.masmediagroup.id');
   const [vpnRouterName, setVpnRouterName] = useState('Router-Mitra-RW04');
   const [vpnUser, setVpnUser] = useState('masmedia-router-01');
@@ -106,7 +106,7 @@ export const MikroTikView: React.FC<MikroTikViewProps> = ({ initialTab = 'sessio
   }>>([]);
 
   // IDCloudHost CHR Master VPS State
-  const [chrVpsIp, setChrVpsIp] = useState('103.187.99.50');
+  const [chrVpsIp, setChrVpsIp] = useState('103.49.239.150');
   const [chrVpsPassword, setChrVpsPassword] = useState('Admin@Masmedia2026');
   const [masterScriptCopied, setMasterScriptCopied] = useState(false);
 
@@ -1095,7 +1095,7 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                   Pusat Akun VPN Tunnel Dinamis & Multi-Tenant RT/RW Net
                 </h2>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Semua router mitra dan cabang terhubung secara dinamis ke Server VPS CHR MasmediaGroup (<b>103.187.99.50</b>). Bebas biaya pihak ketiga, bypass 100% CGNAT/Indihome, dan terintegrasi otomatis dengan FreeRADIUS & CoA Isolir.
+                  Semua router mitra dan cabang terhubung secara dinamis ke Server VPS CHR MasmediaGroup (<b>103.49.239.150</b>). Bebas biaya pihak ketiga, bypass 100% CGNAT/Indihome, dan terintegrasi otomatis dengan FreeRADIUS & CoA Isolir.
                 </p>
               </div>
 
@@ -1104,7 +1104,7 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                 <div className="w-3 h-3 rounded-full bg-blue-400 animate-ping shrink-0" />
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Server VPS Master Masmedia</div>
-                  <div className="text-sm font-mono font-bold text-blue-400">103.187.99.50</div>
+                  <div className="text-sm font-mono font-bold text-blue-400">103.49.239.150</div>
                   <div className="text-[10px] text-slate-400">Data Center Jakarta (Latency 3-5ms)</div>
                 </div>
               </div>
@@ -1383,7 +1383,7 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                     Daftar Router Mitra & Cabang Terkoneksi VPN MasmediaGroup
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Semua router yang terhubung ke VPS Master MasmediaGroup (103.187.99.50).
+                    Semua router yang terhubung ke VPS Master MasmediaGroup (103.49.239.150).
                   </p>
                 </div>
                 <button
@@ -1422,10 +1422,10 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                         </td>
                         <td className="p-3 font-mono text-slate-300">{router.tunnelIp}</td>
                         <td className="p-3 font-mono font-bold text-blue-400">
-                          103.187.99.50:{router.winboxPort}
+                          {vpnServerHost}:{router.winboxPort}
                         </td>
                         <td className="p-3 font-mono font-bold text-blue-400">
-                          103.187.99.50:{router.apiPort}
+                          {vpnServerHost}:{router.apiPort}
                         </td>
                         <td className="p-3">
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-white border border-blue-500/20 text-[10px] font-bold">
@@ -1506,7 +1506,7 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                       setChrVpsIp(e.target.value);
                       setVpnServerHost(e.target.value);
                     }}
-                    placeholder="103.187.99.50"
+                    placeholder="103.49.239.150"
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-blue-400 font-mono font-bold text-xs focus:outline-none focus:border-blue-500"
                   />
                 </div>

@@ -59,7 +59,7 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   // Form State for "Buat Akun NAS"
   const [routerName, setRouterName] = useState('');
   const [routerIp, setRouterIp] = useState('');
-  const [radiusSecret, setRadiusSecret] = useState('Server@123');
+  const [radiusSecret, setRadiusSecret] = useState('');
   const [timezone, setTimezone] = useState('+7 Asia/Jakarta');
   const [showSecret, setShowSecret] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,10 +76,9 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   const [testingNasId, setTestingNasId] = useState<string | null>(null);
   const [testSuccessToast, setTestSuccessToast] = useState<{ nasId: string; message: string } | null>(null);
 
-  // Modal State for "Skrip Mikrotik" (Lihat) - Skrip Terpisah Satu Per Satu
+  // Modal State for "Skrip Mikrotik" (Lihat)
   const [selectedNasForScript, setSelectedNasForScript] = useState<MikroTikNAS | null>(null);
   const [copiedModalScript, setCopiedModalScript] = useState(false);
-  const [activeScriptStep, setActiveScriptStep] = useState<'step1' | 'step2' | 'step3'>('step2');
 
   // Modal State for "Edit NAS"
   const [editingNas, setEditingNas] = useState<MikroTikNAS | null>(null);
@@ -89,8 +88,8 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   const [editTimezone, setEditTimezone] = useState('+7 Asia/Jakarta');
   const [showEditSecret, setShowEditSecret] = useState(false);
 
-  // Fallback / default RADIUS server IP matching RadbooX reference or config
-  const radiusServerHost = radiusServerConfig?.serverHost || '103.116.83.83';
+  // Fallback / default RADIUS server IP matching VPS IP
+  const radiusServerHost = radiusServerConfig?.serverHost || '103.49.239.150';
 
   const toggleSecretVisibility = (id: string) => {
     setVisibleSecrets(prev => ({
@@ -99,14 +98,17 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
     }));
   };
 
-  // Quick fill with active VPN IP if available
+  // Quick fill with active VPN data (disamakan dengan Akun VPN: nama, IP, password)
   const handleFillFromVpn = () => {
     const activeVpn = vpnConfigs.find(v => v.status === 'connected') || vpnConfigs[0];
     if (activeVpn) {
+      setRouterName(activeVpn.name);
       setRouterIp(activeVpn.remoteIp || activeVpn.serverAddress);
-      if (!routerName) {
-        setRouterName(`Router ${activeVpn.name}`);
+      if (activeVpn.password) {
+        setRadiusSecret(activeVpn.password);
       }
+      setFormSuccessMessage(`Data disamakan dengan Akun VPN "${activeVpn.name}": IP (${activeVpn.remoteIp || activeVpn.serverAddress}) & Password disinkronkan.`);
+      setTimeout(() => setFormSuccessMessage(null), 3500);
     } else {
       setActiveTab('setting-vpn');
     }
@@ -237,7 +239,7 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
       v => v.remoteIp === nas.ipAddress || v.serverAddress === nas.ipAddress || v.name.toLowerCase().includes(nas.name.toLowerCase())
     ) || vpnConfigs[0];
 
-    const vpnHost = matchedVpn?.serverAddress || '103.187.99.50';
+    const vpnHost = matchedVpn?.serverAddress || '103.49.239.150';
     const clientIp = matchedVpn?.remoteIp || nas.ipAddress || '10.200.0.10';
     const winboxPort = matchedVpn?.remoteWinboxPort || 18291;
 
@@ -354,14 +356,6 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 :put ">>> Status Router di Dashboard Otomatis ONLINE <<<"
 :put "========================================================="
 `;
-  };
-
-  // Skrip RouterOS Terpisah Satu Per Satu (Tidak Digabung)
-  const getActiveScriptByStep = (nas: MikroTikNAS): string => {
-    if (activeScriptStep === 'step1') return generateVpnScript(nas);
-    if (activeScriptStep === 'step2') return generateNasRadiusScript(nas);
-    if (activeScriptStep === 'step3') return generateSchedulerHeartbeatScript(nas);
-    return generateNasRadiusScript(nas);
   };
 
   return (
@@ -549,7 +543,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                   <label className="text-xs font-semibold text-slate-300">Nama Router</label>
                   <input
                     type="text"
-                    placeholder="Nama Router (misal: MASMEDIA)"
+                    placeholder="(nama VPN)"
                     value={routerName}
                     onChange={e => setRouterName(e.target.value)}
                     className="w-full bg-[#1e293b]/70 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium"
@@ -563,17 +557,18 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Contoh: 172.31.154.207 atau MASMEDIA"
+                      placeholder="(IP VPN)"
                       value={routerIp}
                       onChange={e => setRouterIp(e.target.value)}
                       className="w-full bg-[#1e293b]/70 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono font-medium"
                       required
                     />
-                    {vpnConfigs.length > 0 && !routerIp && (
+                    {vpnConfigs.length > 0 && (
                       <button
                         type="button"
                         onClick={handleFillFromVpn}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 px-2 py-1 rounded-md border border-blue-500/40 transition-colors"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] bg-blue-600/40 hover:bg-blue-600 text-blue-200 hover:text-white px-2 py-1 rounded-md border border-blue-500/50 transition-colors"
+                        title="Samakan dengan data Akun VPN aktif"
                       >
                         Pilih VPN
                       </button>
@@ -587,7 +582,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                   <div className="relative">
                     <input
                       type={showSecret ? 'text' : 'password'}
-                      placeholder="Masukkan Password RADIUS"
+                      placeholder="(Password VPN)"
                       value={radiusSecret}
                       onChange={e => setRadiusSecret(e.target.value)}
                       className="w-full bg-[#1e293b]/70 border border-slate-700/80 rounded-xl px-4 py-2.5 pr-11 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono"
@@ -677,7 +672,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
               filteredNasList.map(nas => {
                 const isSecretVisible = visibleSecrets[nas.id] || false;
                 const secret = nas.radiusSecret || 'Server@123';
-                const routerIpDisplay = nas.ipAddress || '172.31.154.207';
+                const routerIpDisplay = nas.ipAddress || '10.200.0.10';
                 const radiusIpDisplay = radiusServerHost;
 
                 return (
@@ -837,26 +832,20 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                         </div>
                       </div>
 
-                      {/* Row 6: Skrip Mikrotik (Blue Button [i] Lihat) */}
+                      {/* Row 6: Skrip Mikrotik (Lihat Skrip NAS) */}
                       <div className="grid grid-cols-12 items-center pt-1">
                         <div className="col-span-4 sm:col-span-3 text-slate-400">Skrip Mikrotik</div>
                         <div className="col-span-1 text-center text-slate-500">:</div>
                         <div className="col-span-7 sm:col-span-8 flex items-center flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedNasForScript(nas);
-                              setActiveScriptStep('all');
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold rounded-md shadow transition-all cursor-pointer text-xs"
-                            title="Lihat 3 skrip MikroTik (VPN, NAS RADIUS, Scheduler Otomatis)"
+                            onClick={() => setSelectedNasForScript(nas)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-md shadow transition-all cursor-pointer text-xs"
+                            title="Lihat skrip NAS & FreeRADIUS MikroTik"
                           >
-                            <Info className="w-3.5 h-3.5 fill-white text-blue-600" />
-                            <span>Lihat Skrip (3 Step)</span>
+                            <Terminal className="w-3.5 h-3.5" />
+                            <span>Lihat Skrip NAS</span>
                           </button>
-                          <span className="text-[10px] text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/80">
-                            1. VPN &bull; 2. NAS &bull; 3. Scheduler
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -880,20 +869,20 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
         </div>
       )}
 
-      {/* Modal Dialog: Skrip MikroTik Ready to Copy (When clicking [Lihat]) */}
+      {/* Modal Dialog: Skrip MikroTik NAS Ready to Copy (When clicking [Lihat Skrip NAS]) */}
       {selectedNasForScript && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-[#111827] border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400">
-                  <Terminal className="w-5 h-5" />
+                <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                  <Radio className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-white">
-                      Skrip MikroTik RADIUS - {selectedNasForScript.name}
+                      Skrip MikroTik NAS (FreeRADIUS) - {selectedNasForScript.name}
                     </h3>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -906,7 +895,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                     </span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Host RADIUS: <span className="font-mono text-emerald-400">{radiusServerHost}</span> | Secret: <span className="font-mono text-blue-300">{selectedNasForScript.radiusSecret || 'Server@123'}</span>
+                    Host RADIUS: <span className="font-mono text-emerald-400">{radiusServerHost}</span> | Secret: <span className="font-mono text-emerald-300">{selectedNasForScript.radiusSecret || 'Server@123'}</span>
                   </p>
                 </div>
               </div>
@@ -920,82 +909,24 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 
             {/* Modal Content */}
             <div className="p-5 space-y-4 overflow-y-auto">
-              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-blue-200 leading-relaxed space-y-2">
-                <div className="flex items-center gap-2 font-bold text-blue-100 text-sm">
-                  <Info className="w-4 h-4 text-blue-400 shrink-0" />
-                  <span>3 Skrip Wajib MikroTik (Dijalankan Berurutan):</span>
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-200 leading-relaxed space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-emerald-100 text-sm">
+                  <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Skrip Konfigurasi NAS & FreeRADIUS MikroTik</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-                  <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
-                    <span className="font-bold text-amber-400 block mb-0.5">1. Skrip VPN WireGuard</span>
-                    <span className="text-slate-300">Menghubungkan tunnel router ke server remote Masmedia VPS.</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
-                    <span className="font-bold text-emerald-400 block mb-0.5">2. Skrip NAS & RADIUS</span>
-                    <span className="text-slate-300">Autentikasi AAA PPPoE, Hotspot, CoA isolir port 3799, dan SNMP.</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900/80 border border-blue-500/30">
-                    <span className="font-bold text-cyan-400 block mb-0.5">3. Skrip Scheduler Otomatis</span>
-                    <span className="text-slate-300">Kirim sinyal heartbeat realtime tiap 30 detik agar status ONLINE.</span>
-                  </div>
-                </div>
-                <p className="text-[11px] text-amber-300/90 pt-1 font-medium">
-                  ⚠️ <strong>Catatan Penting:</strong> Skrip tidak digabung demi kestabilan RouterOS. Pilih tab skrip 1, 2, atau 3 di bawah, lalu salin dan jalankan satu per satu di <strong>Winbox &gt; New Terminal</strong>.
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  Salin skrip NAS di bawah ini lalu tempelkan (paste) ke <strong>Winbox &gt; New Terminal</strong> pada router ini. Skrip ini akan mendaftarkan RADIUS Server (<span className="font-mono text-emerald-400">{radiusServerHost}</span>) untuk autentikasi PPPoE & Hotspot, mengaktifkan Incoming CoA (Port 3799) untuk isolir/disconnect otomatis, serta mengaktifkan SNMP monitoring.
                 </p>
-              </div>
-
-              {/* Step Tabs (Terpisah Satu Per Satu) */}
-              <div className="flex items-center gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl overflow-x-auto text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveScriptStep('step1')}
-                  className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeScriptStep === 'step1'
-                      ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <span className="w-4 h-4 rounded-full bg-amber-500/30 text-amber-200 text-[10px] font-bold flex items-center justify-center">1</span>
-                  <span>1. Skrip VPN WireGuard</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveScriptStep('step2')}
-                  className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeScriptStep === 'step2'
-                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/30 text-emerald-200 text-[10px] font-bold flex items-center justify-center">2</span>
-                  <span>2. Skrip NAS (RADIUS)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveScriptStep('step3')}
-                  className={`px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeScriptStep === 'step3'
-                      ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <span className="w-4 h-4 rounded-full bg-cyan-500/30 text-cyan-200 text-[10px] font-bold flex items-center justify-center">3</span>
-                  <span>3. Skrip Scheduler Heartbeat</span>
-                </button>
               </div>
 
               {/* Code Pre Block */}
               <div className="relative">
                 <div className="flex items-center justify-between px-4 py-2 bg-slate-950 border-t border-x border-slate-800 rounded-t-xl text-[11px] text-slate-400 font-mono">
-                  <span>
-                    {activeScriptStep === 'step1' && 'Langkah 1: Skrip VPN WireGuard Tunnel & Port Remot Winbox'}
-                    {activeScriptStep === 'step2' && 'Langkah 2: Skrip NAS (FreeRADIUS AAA + CoA 3799 + SNMP MikroTik)'}
-                    {activeScriptStep === 'step3' && 'Langkah 3: Skrip Scheduler Otomatis (Heartbeat Sinyal Realtime Tiap 30 Detik)'}
-                  </span>
+                  <span>Skrip NAS (FreeRADIUS AAA + CoA 3799 + SNMP MikroTik)</span>
                   <span className="text-emerald-400">Siap Tempel di Terminal</span>
                 </div>
-                <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-blue-500 selection:text-white">
-                  {getActiveScriptByStep(selectedNasForScript)}
+                <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-emerald-500 selection:text-white">
+                  {generateNasRadiusScript(selectedNasForScript)}
                 </pre>
               </div>
             </div>
@@ -1034,22 +965,18 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                   Tutup
                 </button>
                 <button
-                  onClick={() => handleCopyScript(getActiveScriptByStep(selectedNasForScript))}
-                  className="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-xs px-5 py-2 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                  onClick={() => handleCopyScript(generateNasRadiusScript(selectedNasForScript))}
+                  className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs px-5 py-2 rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2 cursor-pointer"
                 >
                   {copiedModalScript ? (
                     <>
-                      <Check className="w-4 h-4 text-emerald-300" />
-                      <span>Skrip Berhasil Tersalin!</span>
+                      <Check className="w-4 h-4 text-white" />
+                      <span>Skrip NAS Berhasil Tersalin!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      <span>
-                        {activeScriptStep === 'step1' && 'Salin Skrip 1 (VPN WireGuard)'}
-                        {activeScriptStep === 'step2' && 'Salin Skrip 2 (NAS RADIUS)'}
-                        {activeScriptStep === 'step3' && 'Salin Skrip 3 (Scheduler Heartbeat)'}
-                      </span>
+                      <span>Salin Skrip NAS (RADIUS)</span>
                     </>
                   )}
                 </button>
@@ -1081,6 +1008,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                 <label className="text-xs font-semibold text-slate-300">Nama Router</label>
                 <input
                   type="text"
+                  placeholder="(nama VPN)"
                   value={editRouterName}
                   onChange={e => setEditRouterName(e.target.value)}
                   className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-medium"
@@ -1092,6 +1020,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                 <label className="text-xs font-semibold text-slate-300">Alamat IP Router</label>
                 <input
                   type="text"
+                  placeholder="(IP VPN)"
                   value={editRouterIp}
                   onChange={e => setEditRouterIp(e.target.value)}
                   className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-mono"
@@ -1104,6 +1033,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                 <div className="relative">
                   <input
                     type={showEditSecret ? 'text' : 'password'}
+                    placeholder="(Password VPN)"
                     value={editRadiusSecret}
                     onChange={e => setEditRadiusSecret(e.target.value)}
                     className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-mono pr-10"
