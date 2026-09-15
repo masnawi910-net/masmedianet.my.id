@@ -64,7 +64,7 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const [copiedModalScript, setCopiedModalScript] = useState(false);
   const [quickCopiedId, setQuickCopiedId] = useState<string | null>(null);
 
-  // Parameter Khusus untuk Skrip Autentikasi RADIUS (Disesuaikan dengan kebutuhan seperti RadbooX / Masmedia)
+  // Parameter Khusus untuk Skrip Autentikasi RADIUS MasmediaNet (Dapat Berjalan Bersama RadbooX / Sistem Lain)
   const [radiusTargetIp, setRadiusTargetIp] = useState('103.116.83.83');
   const [radiusConnectTo, setRadiusConnectTo] = useState('103.116.83.85');
   const [radiusSstpPort, setRadiusSstpPort] = useState<number>(4433);
@@ -73,7 +73,7 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const [radiusRouterOsVersion, setRadiusRouterOsVersion] = useState<'v7' | 'v6'>('v7');
   const [includeSnmpRule, setIncludeSnmpRule] = useState(true);
   const [snmpServerIp, setSnmpServerIp] = useState('103.116.83.82/32');
-  const [snmpCommunityName, setSnmpCommunityName] = useState('Masmedia');
+  const [snmpCommunityName, setSnmpCommunityName] = useState('MasmediaNet');
 
   // Calculate Next Dynamic Allocation (IP and Ports)
   const nextAllocation = useMemo(() => {
@@ -81,7 +81,7 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
     const usedWinboxPorts = new Set(vpnConfigs.map(item => item.remoteWinboxPort).filter(Boolean));
     const usedWebPorts = new Set(vpnConfigs.map(item => item.remoteWebPort).filter(Boolean));
 
-    // Next IP in 10.200.0.X (bersih dari 172.31.154.X milik RadbooX)
+    // Next IP in 10.200.0.X (alokasi mandiri untuk MasmediaNet)
     let octet = 10;
     while (usedIps.has(`10.200.0.${octet}`) && octet < 254) {
       octet++;
@@ -204,9 +204,9 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const startIndex = (currentPage - 1) * rowsPerPage;
   const paginatedData = filteredVpnConfigs.slice(startIndex, startIndex + rowsPerPage);
 
-  // --- KELOMPOK 1: SCRIPT AUTENTIKASI RADIUS (TUNNEL & ROUTING KHUSUS RADIUS) ---
+  // --- KELOMPOK 1: SCRIPT AUTENTIKASI RADIUS MASMEDIANET (TUNNEL & ROUTING KHUSUS RADIUS) ---
 
-  // 1.1 RADIUS SSTP Client (Port 4433 / 443 - Format RadbooX & Masmedia)
+  // 1.1 RADIUS SSTP Client (Port 4433 / 443 - Format MasmediaNet, Bebas Konflik dengan RadbooX)
   const generateRadiusSstpScript = (vpn: VPNConfig): string => {
     const connectHost = radiusConnectTo.trim() || vpn.serverAddress || '103.116.83.85';
     const radIp = radiusTargetIp.trim() || '103.116.83.83';
@@ -214,181 +214,188 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
     const pass = vpn.password || vpn.secretKey || 'server@123';
     const sstpPort = radiusSstpPort || 4433;
     const radSecret = radiusSecret.trim() || pass;
-    const iface = 'sstp-RadbooX';
+    const iface = 'sstp-MasmediaNet';
 
     return `# ====================================================================
 # [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA SSTP CLIENT (PORT ${sstpPort})
+# Aplikasi             : MasmediaNet
 # Akun Router MikroTik : ${vpn.name}
 # Gateway Server       : ${connectHost}:${sstpPort}
 # Target IP RADIUS     : ${radIp}
-# Fungsi Utama         : Menghubungkan MikroTik ke Server RADIUS dengan Routing Khusus
+# Interface VPN        : ${iface}
+# Catatan Keamanan     : TIDAK mengganggu/menghapus konfigurasi RadbooX atau VPN lain!
 # ====================================================================
 
-# 1. Bersihkan interface tunnel lama & routing RADIUS sebelumnya
-/interface pptp-client remove [find name~"pptp-RadbooX|pptp-Masmedia|pptp-Radius"]
-/interface l2tp-client remove [find name~"l2tp-RadbooX|l2tp-Masmedia|l2tp-Radius"]
-/interface sstp-client remove [find name~"sstp-RadbooX|sstp-Masmedia|sstp-Radius|${iface}"]
-/ip route remove [find dst-address="${radIp}/32"]
-/ip route remove [find dst-address="${radIp}"]
+# 1. Bersihkan interface tunnel & route MasmediaNet sebelumnya (jika ada)
+/interface sstp-client remove [find name="${iface}"]
+/ip route remove [find comment="Route-MasmediaNet-RADIUS"]
+/ip route remove [find gateway="${iface}"]
 
-# 2. Hubungkan SSTP Client ke VPN Gateway RADIUS
+# 2. Hubungkan SSTP Client ke VPN Gateway RADIUS MasmediaNet
 /interface sstp-client
 add connect-to=${connectHost} disabled=no name=${iface} port=${sstpPort} \\
     user="${user}" password="${pass}" profile=default-encryption \\
-    verify-server-certificate=no add-default-route=no comment="Tunnel RADIUS Server - ${vpn.name}"
+    verify-server-certificate=no add-default-route=no comment="Tunnel RADIUS Server - MasmediaNet (${vpn.name})"
 
-# 3. Tambahkan Routing Khusus ke IP Server RADIUS
+# 3. Tambahkan Routing Khusus ke IP Server RADIUS MasmediaNet
 /ip route
-add disabled=no distance=1 dst-address=${radIp} gateway=${iface} comment="Route Paket RADIUS Masmedia"
+add disabled=no distance=1 dst-address=${radIp} gateway=${iface} comment="Route-MasmediaNet-RADIUS"
 ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
-# 4. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
-/radius remove [find address="${radIp}"]
+# 4. Daftarkan Server RADIUS MasmediaNet MikroTik V7 (RouterOS v7)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius
- add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret} comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 ` : `
-# 4. Daftarkan Server RADIUS MikroTik (RouterOS v6)
-/radius remove [find address="${radIp}"]
+# 4. Daftarkan Server RADIUS MasmediaNet MikroTik (RouterOS v6)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius 
- add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 `) : ''}${includeSnmpRule ? `
-# 5. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+# 5. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
+/snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- set [ find default=yes ] disabled=yes 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
 :put "========================================================="
-:put ">>> SUKSES! AUTENTIKASI RADIUS SSTP KE ${radIp} AKTIF! <<<"
+:put ">>> SUKSES! AUTENTIKASI RADIUS SSTP MASMEDIANET KE ${radIp} AKTIF! <<<"
+:put ">>> Interface: ${iface} | RadbooX Tetap Aman Berjalan <<<"
 :put "========================================================="
 `;
   };
 
-  // 1.2 RADIUS WireGuard Client (RouterOS v7)
+  // 1.2 RADIUS WireGuard Client (RouterOS v7 - MasmediaNet)
   const generateRadiusWireGuardScript = (vpn: VPNConfig): string => {
     const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
     const radIp = radiusTargetIp.trim() || '103.116.83.83';
     const tunnelIp = vpn.remoteIp || '10.200.0.10';
     const radSecret = radiusSecret.trim() || vpn.password || 'server@123';
-    const iface = 'wg-radius';
+    const iface = 'wg-MasmediaNet';
 
     return `# ====================================================================
 # [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA WIREGUARD (ROUTEROS v7)
+# Aplikasi             : MasmediaNet
 # Akun Router MikroTik : ${vpn.name}
 # Gateway Server       : ${connectHost}:51820
 # IP Tunnel Client     : ${tunnelIp}/24
 # Target IP RADIUS     : ${radIp}
+# Interface VPN        : ${iface}
+# Catatan Keamanan     : TIDAK mengganggu/menghapus konfigurasi RadbooX atau VPN lain!
 # ====================================================================
 
-# 1. Bersihkan interface WireGuard & route RADIUS sebelumnya
+# 1. Bersihkan interface WireGuard & route MasmediaNet sebelumnya (jika ada)
 /interface wireguard remove [find name="${iface}"]
-/ip route remove [find dst-address="${radIp}/32"]
-/ip route remove [find dst-address="${radIp}"]
+/ip route remove [find comment="Route-MasmediaNet-RADIUS"]
+/ip route remove [find gateway="${iface}"]
 
-# 2. Buat Interface WireGuard Khusus RADIUS
+# 2. Buat Interface WireGuard Khusus RADIUS MasmediaNet
 /interface wireguard
-add name="${iface}" listen-port=13231 mtu=1420 comment="WireGuard RADIUS - ${vpn.name}"
+add name="${iface}" listen-port=13231 mtu=1420 comment="WireGuard RADIUS - MasmediaNet (${vpn.name})"
 
 # 3. Tetapkan IP Tunnel ke Router
 /ip address
-add address=${tunnelIp}/24 interface="${iface}" comment="IP Tunnel WireGuard RADIUS"
+add address=${tunnelIp}/24 interface="${iface}" comment="IP Tunnel WireGuard RADIUS MasmediaNet"
 
 # 4. Daftarkan Peer ke Server VPS
 /interface wireguard peers
 add interface="${iface}" public-key="${vpn.serverPublicKey || DEFAULT_WG_SERVER_PUBKEY}" \\
     endpoint-address="${connectHost}" endpoint-port=51820 allowed-address=${radIp}/32,${tunnelIp}/24 \\
-    persistent-keepalive=25s comment="VPS WireGuard RADIUS Endpoint"
+    persistent-keepalive=25s comment="VPS WireGuard RADIUS Endpoint MasmediaNet"
 
-# 5. Tambahkan Routing Khusus ke IP Server RADIUS
+# 5. Tambahkan Routing Khusus ke IP Server RADIUS MasmediaNet
 /ip route
-add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route RADIUS via WireGuard"
+add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route-MasmediaNet-RADIUS"
 ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
-# 6. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
-/radius remove [find address="${radIp}"]
+# 6. Daftarkan Server RADIUS MasmediaNet MikroTik V7 (RouterOS v7)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius
- add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret} comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 ` : `
-# 6. Daftarkan Server RADIUS MikroTik (RouterOS v6)
-/radius remove [find address="${radIp}"]
+# 6. Daftarkan Server RADIUS MasmediaNet MikroTik (RouterOS v6)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius 
- add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 `) : ''}${includeSnmpRule ? `
-# 7. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+# 7. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
+/snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- set [ find default=yes ] disabled=yes 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
 :put "========================================================="
-:put ">>> SUKSES! AUTENTIKASI RADIUS WIREGUARD KE ${radIp} AKTIF! <<<"
+:put ">>> SUKSES! AUTENTIKASI RADIUS WIREGUARD MASMEDIANET KE ${radIp} AKTIF! <<<"
 :put "========================================================="
 `;
   };
 
-  // 1.3 RADIUS L2TP/IPsec Client (RouterOS v6 & v7)
+  // 1.3 RADIUS L2TP/IPsec Client (RouterOS v6 & v7 - MasmediaNet)
   const generateRadiusL2tpScript = (vpn: VPNConfig): string => {
     const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
     const radIp = radiusTargetIp.trim() || '103.116.83.83';
     const user = vpn.username || 'masmedia';
     const pass = vpn.password || vpn.secretKey || 'server@123';
     const radSecret = radiusSecret.trim() || pass;
-    const iface = 'l2tp-Radius';
+    const iface = 'l2tp-MasmediaNet';
 
     return `# ====================================================================
 # [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA L2TP/IPSEC (ROUTEROS v6 & v7)
+# Aplikasi             : MasmediaNet
 # Akun Router MikroTik : ${vpn.name}
 # Gateway Server       : ${connectHost} (Port: 1701 UDP IPsec)
 # Target IP RADIUS     : ${radIp}
+# Interface VPN        : ${iface}
+# Catatan Keamanan     : TIDAK mengganggu/menghapus konfigurasi RadbooX atau VPN lain!
 # ====================================================================
 
-# 1. Bersihkan interface L2TP lama & route RADIUS sebelumnya
-/interface l2tp-client remove [find name~"l2tp-RadbooX|l2tp-Masmedia|${iface}"]
-/ip route remove [find dst-address="${radIp}/32"]
-/ip route remove [find dst-address="${radIp}"]
+# 1. Bersihkan interface L2TP & route MasmediaNet sebelumnya (jika ada)
+/interface l2tp-client remove [find name="${iface}"]
+/ip route remove [find comment="Route-MasmediaNet-RADIUS"]
+/ip route remove [find gateway="${iface}"]
 
 # 2. Hubungkan L2TP Client
 /interface l2tp-client
 add name="${iface}" connect-to="${connectHost}" user="${user}" \\
     password="${pass}" ipsec-secret="Server@123" use-ipsec=yes \\
     profile=default-encryption allow=mschap2,chap,pap add-default-route=no \\
-    disabled=no comment="VPN L2TP Khusus RADIUS - ${vpn.name}"
+    disabled=no comment="VPN L2TP Khusus RADIUS MasmediaNet - ${vpn.name}"
 
-# 3. Tambahkan Routing Khusus ke IP Server RADIUS
+# 3. Tambahkan Routing Khusus ke IP Server RADIUS MasmediaNet
 /ip route
-add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route RADIUS via L2TP"
+add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route-MasmediaNet-RADIUS"
 ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
-# 4. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
-/radius remove [find address="${radIp}"]
+# 4. Daftarkan Server RADIUS MasmediaNet MikroTik V7 (RouterOS v7)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius
- add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret} comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 ` : `
-# 4. Daftarkan Server RADIUS MikroTik (RouterOS v6)
-/radius remove [find address="${radIp}"]
+# 4. Daftarkan Server RADIUS MasmediaNet MikroTik (RouterOS v6)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 /radius 
- add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms comment="MasmediaNet-RADIUS"
 /radius incoming 
  set accept=yes
 `) : ''}${includeSnmpRule ? `
-# 5. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+# 5. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
+/snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- set [ find default=yes ] disabled=yes 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
 :put "========================================================="
-:put ">>> SUKSES! AUTENTIKASI RADIUS L2TP KE ${radIp} AKTIF! <<<"
+:put ">>> SUKSES! AUTENTIKASI RADIUS L2TP MASMEDIANET KE ${radIp} AKTIF! <<<"
 :put "========================================================="
 `;
   };
@@ -463,14 +470,14 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
 # Fungsi: Membuka Akses Remote Winbox, WebFig & API dari Luar Jaringan
 # ====================================================================
 
-# 1. Hapus koneksi SSTP lama jika ada
-/interface sstp-client remove [find name~"${iface}|vpn-sstp"]
+# 1. Hapus koneksi SSTP MasmediaNet lama jika ada
+/interface sstp-client remove [find name="${iface}"]
 
 # 2. Hubungkan SSTP Client ke VPS Masmedia
 /interface sstp-client
 add name="${iface}" connect-to="${host}" port=443 user="${user}" \\
     password="${pass}" profile=default-encryption verify-server-certificate=no \\
-    add-default-route=no disabled=no comment="VPN SSTP Remote Masmedia - ${vpn.name}"
+    add-default-route=no disabled=no comment="VPN SSTP Remote MasmediaNet - ${vpn.name}"
 
 # 3. Aktifkan Service Winbox, API & Web
 /ip service enable winbox
@@ -508,15 +515,15 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
 # Fungsi: Membuka Akses Remote Winbox, WebFig & API dari Luar Jaringan
 # ====================================================================
 
-# 1. Hapus koneksi L2TP lama jika ada
-/interface l2tp-client remove [find name~"${iface}|vpn-l2tp"]
+# 1. Hapus koneksi L2TP MasmediaNet lama jika ada
+/interface l2tp-client remove [find name="${iface}"]
 
 # 2. Hubungkan L2TP Client ke VPS Masmedia
 /interface l2tp-client
 add name="${iface}" connect-to="${host}" user="${user}" \\
     password="${pass}" ipsec-secret="Server@123" use-ipsec=yes \\
     profile=default-encryption allow=mschap2,chap,pap add-default-route=no \\
-    disabled=no comment="VPN L2TP Remote Masmedia - ${vpn.name}"
+    disabled=no comment="VPN L2TP Remote MasmediaNet - ${vpn.name}"
 
 # 3. Buka Service Winbox, API & Web
 /ip service enable winbox
@@ -985,7 +992,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                      Routing khusus IP RADIUS ({radiusTargetIp}) via VPN (Format RadbooX &amp; Masmedia)
+                      Routing khusus IP RADIUS ({radiusTargetIp}) via VPN MasmediaNet (Dapat Berjalan Berdampingan dengan RadbooX)
                     </p>
                   </div>
                 </button>
@@ -1041,7 +1048,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                     }`}
                   >
                     <Zap className="w-4 h-4 text-amber-400" />
-                    <span>SSTP (Port {radiusSstpPort} - RadbooX &amp; Masmedia)</span>
+                    <span>SSTP (Port {radiusSstpPort} - MasmediaNet)</span>
                   </button>
 
                   <button
@@ -1169,7 +1176,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                       }}
                       className="text-[11px] text-slate-400 hover:text-indigo-300 underline cursor-pointer"
                     >
-                      Reset Default RadbooX
+                      Reset Default MasmediaNet
                     </button>
                   </div>
 
@@ -1212,7 +1219,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                                 : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600'
                             }`}
                           >
-                            4433 (RadbooX)
+                            4433 (Default)
                           </button>
                           <button
                             type="button"
@@ -1320,7 +1327,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                         <>
                           <strong>Fungsi Script:</strong> Menghubungkan tunnel VPN dan menambahkan aturan routing{' '}
                           <code className="bg-slate-900 px-1.5 py-0.5 rounded text-indigo-300 font-mono">
-                            /ip route add dst-address={radiusTargetIp} gateway={activeProtocolTab === 'wireguard' ? 'wg-radius' : activeProtocolTab === 'l2tp' ? 'l2tp-Radius' : 'sstp-RadbooX'}
+                            /ip route add dst-address={radiusTargetIp} gateway={activeProtocolTab === 'wireguard' ? 'wg-MasmediaNet' : activeProtocolTab === 'l2tp' ? 'l2tp-MasmediaNet' : 'sstp-MasmediaNet'}
                           </code>.
                           Dengan routing ini, <em>hanya</em> komunikasi autentikasi PPPoE, Hotspot &amp; Isolir yang diarahkan ke Server RADIUS, sedangkan <strong>seluruh trafik internet pelanggan tetap berjalan normal lewat ISP lokal router</strong>.
                         </>
@@ -1409,7 +1416,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                 <div className="flex items-center gap-2 text-xs text-slate-400">
                   <span>Target Server RADIUS:</span>
                   <span className="font-mono text-indigo-300 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                    {radiusTargetIp} via {activeProtocolTab === 'wireguard' ? 'wg-radius' : activeProtocolTab === 'l2tp' ? 'l2tp-Radius' : 'sstp-RadbooX'}
+                    {radiusTargetIp} via {activeProtocolTab === 'wireguard' ? 'wg-MasmediaNet' : activeProtocolTab === 'l2tp' ? 'l2tp-MasmediaNet' : 'sstp-MasmediaNet'}
                   </span>
                 </div>
               )}

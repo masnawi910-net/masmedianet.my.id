@@ -84,7 +84,7 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   const [nasRadiusIp, setNasRadiusIp] = useState('103.116.83.83');
   const [nasRadiusSecret, setNasRadiusSecret] = useState('Server@123');
   const [nasSnmpIp, setNasSnmpIp] = useState('103.116.83.82/32');
-  const [nasSnmpCommunity, setNasSnmpCommunity] = useState('Masmedia');
+  const [nasSnmpCommunity, setNasSnmpCommunity] = useState('MasmediaNet');
   const [nasRadiusServices, setNasRadiusServices] = useState('ppp,hotspot,dhcp');
   const [nasAllVersion, setNasAllVersion] = useState<'v7' | 'v6'>('v7');
 
@@ -326,51 +326,52 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
  set accept=yes`;
   };
 
-  // 3. Script Enable SNMP MikroTik (Masmedia Network Management)
+  // 3. Script Enable SNMP MikroTik (MasmediaNet Network Management)
   const generateScriptSnmp = (nas: MikroTikNAS): string => {
     const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
-    const communityName = nasSnmpCommunity.trim() || 'Masmedia';
+    const communityName = nasSnmpCommunity.trim() || 'MasmediaNet';
 
-    return `/snmp community 
- set [ find default=yes ] disabled=yes 
+    return `/snmp community remove [find name="${communityName}"]
+/snmp community 
  add addresses=${snmpAddress} name=${communityName} write-access=yes read-access=yes
 /snmp 
  set enabled=yes`;
   };
 
-  // 4. Skrip Lengkap (All-in-One: RADIUS + CoA 3799 + SNMP Masmedia + AAA Integration)
+  // 4. Skrip Lengkap (All-in-One: RADIUS + CoA 3799 + SNMP MasmediaNet + AAA Integration)
   const generateScriptAll = (nas: MikroTikNAS, version: 'v7' | 'v6' = nasAllVersion): string => {
     const radIp = nasRadiusIp.trim() || '103.116.83.83';
     const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
     const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
     const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
-    const communityName = nasSnmpCommunity.trim() || 'Masmedia';
+    const communityName = nasSnmpCommunity.trim() || 'MasmediaNet';
 
     return `# ====================================================================
 # SCRIPT LENGKAP RADIUS & SNMP MIKROTIK (${version === 'v7' ? 'ROUTEROS v7' : 'ROUTEROS v6'})
-# Router NAS : ${nas.name} (${nas.ipAddress})
-# Aplikasi   : Masmedia Network Management
+# Router NAS       : ${nas.name} (${nas.ipAddress})
+# Aplikasi         : MasmediaNet Network Management
+# Catatan Keamanan : Skrip ini KHUSUS MasmediaNet & TIDAK MENGHAPUS RadbooX / RADIUS lain
 # ====================================================================
 
-# 1. Bersihkan konfigurasi RADIUS lama
-/radius remove [find comment~"Masmedia|RadbooX|Billing|FreeRADIUS"]
+# 1. Bersihkan konfigurasi RADIUS MasmediaNet sebelumnya jika ada (RadbooX tetap aman)
+/radius remove [find comment="MasmediaNet-RADIUS"]
 
-# 2. Tambahkan RADIUS Server Masmedia (${version === 'v7' ? 'RouterOS v7' : 'RouterOS v6'})
+# 2. Tambahkan RADIUS Server MasmediaNet (${version === 'v7' ? 'RouterOS v7' : 'RouterOS v6'})
 ${
   version === 'v7'
     ? `/radius
- add address=${radIp} require-message-auth=no service=${services} timeout=2s secret=${secret} comment="Server RADIUS Masmedia (v7)"`
+ add address=${radIp} require-message-auth=no service=${services} timeout=2s secret=${secret} comment="MasmediaNet-RADIUS"`
     : `/radius
- add address=${radIp} secret="${secret}" service=${services} timeout=2000ms comment="Server RADIUS Masmedia (v6)"`
+ add address=${radIp} secret="${secret}" service=${services} timeout=2000ms comment="MasmediaNet-RADIUS"`
 }
 
 # 3. Aktifkan Incoming Request (CoA / Disconnect Port 3799 untuk Kick & Isolir Otomatis)
 /radius incoming 
  set accept=yes port=3799
 
-# 4. Aktifkan SNMP MikroTik dengan Community Masmedia (Aplikasi Ini)
+# 4. Aktifkan SNMP MikroTik dengan Community MasmediaNet
+/snmp community remove [find name="${communityName}"]
 /snmp community 
- set [ find default=yes ] disabled=yes 
  add addresses=${snmpAddress} name=${communityName} write-access=yes read-access=yes
 /snmp 
  set enabled=yes contact="admin@masmedianet" location="${nas.name}"
@@ -384,7 +385,8 @@ ${
  set [find default=yes] use-radius=yes radius-accounting=yes radius-interim-update=00:01:00
 
 :put "========================================================="
-:put ">>> SUKSES! KONFIGURASI RADIUS & SNMP MASMEDIA AKTIF! <<<"
+:put ">>> SUKSES! KONFIGURASI RADIUS & SNMP MASMEDIANET AKTIF! <<<"
+:put ">>> RadbooX & Konfigurasi Lain Tetap Aman Berjalan <<<"
 :put "========================================================="
 `;
   };
@@ -1226,7 +1228,7 @@ ${
                       <span>Script Enable SNMP MikroTik (Komunitas: {nasSnmpCommunity})</span>
                     </div>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
-                      Mengaktifkan SNMP MikroTik dengan nama community <strong className="text-emerald-300 font-mono">{nasSnmpCommunity}</strong> (menggunakan nama aplikasi ini menggantikan <em>RadbooX</em>), memberikan hak akses <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">write-access=yes read-access=yes</code> khusus untuk IP monitoring <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">{nasSnmpIp}</code>.
+                      Mengaktifkan SNMP MikroTik khusus untuk aplikasi MasmediaNet dengan nama community <strong className="text-emerald-300 font-mono">{nasSnmpCommunity}</strong> (dapat berjalan bersamaan dengan RadbooX atau sistem monitoring lain), memberikan hak akses <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">write-access=yes read-access=yes</code> khusus untuk IP monitoring <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">{nasSnmpIp}</code>.
                     </p>
                   </>
                 )}
