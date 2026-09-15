@@ -33,7 +33,7 @@ export interface VPNSettingViewProps {
 }
 
 export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false }) => {
-  const { vpnConfigs, addVPN, deleteVPN, setActiveTab } = useApp();
+  const { vpnConfigs, addVPN, deleteVPN, setActiveTab, radiusServer } = useApp();
 
   // VPS Server Public Host IP (Default user VPS IP)
   const defaultServerHost = '103.49.239.150';
@@ -56,12 +56,24 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   // Password visibility map for table rows
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
-  // Modal State for Script Viewer with 3 Protocol Tabs
+  // Modal State for Script Viewer: Dipisah antara RADIUS Auth & Remote Winbox
   const [selectedVpnModal, setSelectedVpnModal] = useState<VPNConfig | null>(null);
-  const [activeProtocolTab, setActiveProtocolTab] = useState<'wireguard' | 'sstp' | 'l2tp'>('wireguard');
+  const [scriptMode, setScriptMode] = useState<'radius' | 'remote'>('radius');
+  const [activeProtocolTab, setActiveProtocolTab] = useState<'wireguard' | 'sstp' | 'l2tp'>('sstp');
   const [showWaShare, setShowWaShare] = useState(false);
   const [copiedModalScript, setCopiedModalScript] = useState(false);
   const [quickCopiedId, setQuickCopiedId] = useState<string | null>(null);
+
+  // Parameter Khusus untuk Skrip Autentikasi RADIUS (Disesuaikan dengan kebutuhan seperti RadbooX / Masmedia)
+  const [radiusTargetIp, setRadiusTargetIp] = useState('103.116.83.83');
+  const [radiusConnectTo, setRadiusConnectTo] = useState('103.116.83.85');
+  const [radiusSstpPort, setRadiusSstpPort] = useState<number>(4433);
+  const [radiusSecret, setRadiusSecret] = useState('server@123');
+  const [includeRadiusServiceRule, setIncludeRadiusServiceRule] = useState(true);
+  const [radiusRouterOsVersion, setRadiusRouterOsVersion] = useState<'v7' | 'v6'>('v7');
+  const [includeSnmpRule, setIncludeSnmpRule] = useState(true);
+  const [snmpServerIp, setSnmpServerIp] = useState('103.116.83.82/32');
+  const [snmpCommunityName, setSnmpCommunityName] = useState('Masmedia');
 
   // Calculate Next Dynamic Allocation (IP and Ports)
   const nextAllocation = useMemo(() => {
@@ -192,7 +204,198 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const startIndex = (currentPage - 1) * rowsPerPage;
   const paginatedData = filteredVpnConfigs.slice(startIndex, startIndex + rowsPerPage);
 
-  // Script Generator 1: WireGuard (Ros 7)
+  // --- KELOMPOK 1: SCRIPT AUTENTIKASI RADIUS (TUNNEL & ROUTING KHUSUS RADIUS) ---
+
+  // 1.1 RADIUS SSTP Client (Port 4433 / 443 - Format RadbooX & Masmedia)
+  const generateRadiusSstpScript = (vpn: VPNConfig): string => {
+    const connectHost = radiusConnectTo.trim() || vpn.serverAddress || '103.116.83.85';
+    const radIp = radiusTargetIp.trim() || '103.116.83.83';
+    const user = vpn.username || 'masmedia';
+    const pass = vpn.password || vpn.secretKey || 'server@123';
+    const sstpPort = radiusSstpPort || 4433;
+    const radSecret = radiusSecret.trim() || pass;
+    const iface = 'sstp-RadbooX';
+
+    return `# ====================================================================
+# [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA SSTP CLIENT (PORT ${sstpPort})
+# Akun Router MikroTik : ${vpn.name}
+# Gateway Server       : ${connectHost}:${sstpPort}
+# Target IP RADIUS     : ${radIp}
+# Fungsi Utama         : Menghubungkan MikroTik ke Server RADIUS dengan Routing Khusus
+# ====================================================================
+
+# 1. Bersihkan interface tunnel lama & routing RADIUS sebelumnya
+/interface pptp-client remove [find name~"pptp-RadbooX|pptp-Masmedia|pptp-Radius"]
+/interface l2tp-client remove [find name~"l2tp-RadbooX|l2tp-Masmedia|l2tp-Radius"]
+/interface sstp-client remove [find name~"sstp-RadbooX|sstp-Masmedia|sstp-Radius|${iface}"]
+/ip route remove [find dst-address="${radIp}/32"]
+/ip route remove [find dst-address="${radIp}"]
+
+# 2. Hubungkan SSTP Client ke VPN Gateway RADIUS
+/interface sstp-client
+add connect-to=${connectHost} disabled=no name=${iface} port=${sstpPort} \\
+    user="${user}" password="${pass}" profile=default-encryption \\
+    verify-server-certificate=no add-default-route=no comment="Tunnel RADIUS Server - ${vpn.name}"
+
+# 3. Tambahkan Routing Khusus ke IP Server RADIUS
+/ip route
+add disabled=no distance=1 dst-address=${radIp} gateway=${iface} comment="Route Paket RADIUS Masmedia"
+${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
+# 4. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
+/radius remove [find address="${radIp}"]
+/radius
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+/radius incoming 
+ set accept=yes
+` : `
+# 4. Daftarkan Server RADIUS MikroTik (RouterOS v6)
+/radius remove [find address="${radIp}"]
+/radius 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+/radius incoming 
+ set accept=yes
+`) : ''}${includeSnmpRule ? `
+# 5. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+/snmp community 
+ set [ find default=yes ] disabled=yes 
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+/snmp 
+ set enabled=yes
+` : ''}
+:put "========================================================="
+:put ">>> SUKSES! AUTENTIKASI RADIUS SSTP KE ${radIp} AKTIF! <<<"
+:put "========================================================="
+`;
+  };
+
+  // 1.2 RADIUS WireGuard Client (RouterOS v7)
+  const generateRadiusWireGuardScript = (vpn: VPNConfig): string => {
+    const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
+    const radIp = radiusTargetIp.trim() || '103.116.83.83';
+    const tunnelIp = vpn.remoteIp || '10.200.0.10';
+    const radSecret = radiusSecret.trim() || vpn.password || 'server@123';
+    const iface = 'wg-radius';
+
+    return `# ====================================================================
+# [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA WIREGUARD (ROUTEROS v7)
+# Akun Router MikroTik : ${vpn.name}
+# Gateway Server       : ${connectHost}:51820
+# IP Tunnel Client     : ${tunnelIp}/24
+# Target IP RADIUS     : ${radIp}
+# ====================================================================
+
+# 1. Bersihkan interface WireGuard & route RADIUS sebelumnya
+/interface wireguard remove [find name="${iface}"]
+/ip route remove [find dst-address="${radIp}/32"]
+/ip route remove [find dst-address="${radIp}"]
+
+# 2. Buat Interface WireGuard Khusus RADIUS
+/interface wireguard
+add name="${iface}" listen-port=13231 mtu=1420 comment="WireGuard RADIUS - ${vpn.name}"
+
+# 3. Tetapkan IP Tunnel ke Router
+/ip address
+add address=${tunnelIp}/24 interface="${iface}" comment="IP Tunnel WireGuard RADIUS"
+
+# 4. Daftarkan Peer ke Server VPS
+/interface wireguard peers
+add interface="${iface}" public-key="${vpn.serverPublicKey || DEFAULT_WG_SERVER_PUBKEY}" \\
+    endpoint-address="${connectHost}" endpoint-port=51820 allowed-address=${radIp}/32,${tunnelIp}/24 \\
+    persistent-keepalive=25s comment="VPS WireGuard RADIUS Endpoint"
+
+# 5. Tambahkan Routing Khusus ke IP Server RADIUS
+/ip route
+add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route RADIUS via WireGuard"
+${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
+# 6. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
+/radius remove [find address="${radIp}"]
+/radius
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+/radius incoming 
+ set accept=yes
+` : `
+# 6. Daftarkan Server RADIUS MikroTik (RouterOS v6)
+/radius remove [find address="${radIp}"]
+/radius 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+/radius incoming 
+ set accept=yes
+`) : ''}${includeSnmpRule ? `
+# 7. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+/snmp community 
+ set [ find default=yes ] disabled=yes 
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+/snmp 
+ set enabled=yes
+` : ''}
+:put "========================================================="
+:put ">>> SUKSES! AUTENTIKASI RADIUS WIREGUARD KE ${radIp} AKTIF! <<<"
+:put "========================================================="
+`;
+  };
+
+  // 1.3 RADIUS L2TP/IPsec Client (RouterOS v6 & v7)
+  const generateRadiusL2tpScript = (vpn: VPNConfig): string => {
+    const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
+    const radIp = radiusTargetIp.trim() || '103.116.83.83';
+    const user = vpn.username || 'masmedia';
+    const pass = vpn.password || vpn.secretKey || 'server@123';
+    const radSecret = radiusSecret.trim() || pass;
+    const iface = 'l2tp-Radius';
+
+    return `# ====================================================================
+# [BAGIAN 1] SCRIPT AUTENTIKASI RADIUS VIA L2TP/IPSEC (ROUTEROS v6 & v7)
+# Akun Router MikroTik : ${vpn.name}
+# Gateway Server       : ${connectHost} (Port: 1701 UDP IPsec)
+# Target IP RADIUS     : ${radIp}
+# ====================================================================
+
+# 1. Bersihkan interface L2TP lama & route RADIUS sebelumnya
+/interface l2tp-client remove [find name~"l2tp-RadbooX|l2tp-Masmedia|${iface}"]
+/ip route remove [find dst-address="${radIp}/32"]
+/ip route remove [find dst-address="${radIp}"]
+
+# 2. Hubungkan L2TP Client
+/interface l2tp-client
+add name="${iface}" connect-to="${connectHost}" user="${user}" \\
+    password="${pass}" ipsec-secret="Server@123" use-ipsec=yes \\
+    profile=default-encryption allow=mschap2,chap,pap add-default-route=no \\
+    disabled=no comment="VPN L2TP Khusus RADIUS - ${vpn.name}"
+
+# 3. Tambahkan Routing Khusus ke IP Server RADIUS
+/ip route
+add disabled=no distance=1 dst-address=${radIp} gateway="${iface}" comment="Route RADIUS via L2TP"
+${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
+# 4. Daftarkan Server RADIUS MikroTik V7 (RouterOS v7)
+/radius remove [find address="${radIp}"]
+/radius
+ add address=${radIp} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret=${radSecret}
+/radius incoming 
+ set accept=yes
+` : `
+# 4. Daftarkan Server RADIUS MikroTik (RouterOS v6)
+/radius remove [find address="${radIp}"]
+/radius 
+ add address=${radIp} secret="${radSecret}" service=ppp,hotspot,dhcp timeout=2000ms 
+/radius incoming 
+ set accept=yes
+`) : ''}${includeSnmpRule ? `
+# 5. Aktifkan SNMP MikroTik (Community: ${snmpCommunityName.trim() || 'Masmedia'})
+/snmp community 
+ set [ find default=yes ] disabled=yes 
+ add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'Masmedia'} write-access=yes read-access=yes
+/snmp 
+ set enabled=yes
+` : ''}
+:put "========================================================="
+:put ">>> SUKSES! AUTENTIKASI RADIUS L2TP KE ${radIp} AKTIF! <<<"
+:put "========================================================="
+`;
+  };
+
+  // --- KELOMPOK 2: SCRIPT REMOTE WINBOX & MANAJEMEN ROUTER (AKSES DARI LUAR JARINGAN) ---
+
+  // 2.1 Remote Winbox WireGuard (Ros 7 - Cepat & Ringan)
   const generateWireGuardScript = (vpn: VPNConfig): string => {
     const host = vpn.serverAddress || defaultServerHost;
     const ip = vpn.remoteIp || '10.200.0.10';
@@ -200,11 +403,12 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
     const iface = 'wg-masmedia';
 
     return `# ====================================================================
-# TAB 1. SCRIPT WIREGUARD CLIENT MIKROTIK (ROUTEROS v7)
+# [BAGIAN 2] SCRIPT REMOTE WINBOX & MANAJEMEN ROUTER (WIREGUARD ROS 7)
 # Akun: ${vpn.name} | User: ${vpn.username}
 # Server Host: ${host} | Port Endpoint: 51820
 # IP Tunnel  : ${ip}/24
 # Remote Winbox: ${host}:${winboxPort}
+# Fungsi: Membuka Akses Remote Winbox, WebFig & API dari Luar Jaringan
 # ====================================================================
 
 # 1. Bersihkan interface WireGuard lama jika ada
@@ -219,9 +423,8 @@ add name="${iface}" listen-port=13231 mtu=1420 comment="VPN Remote Masmedia Wire
 add address=${ip}/24 interface="${iface}" comment="IP Tunnel WireGuard Masmedia"
 
 # 4. Daftarkan Peer ke Server VPS Masmedia
-# (Pastikan public-key server VPS diisi sesuai dengan output 'wg show' di VPS Anda)
 /interface wireguard peers
-add interface="${iface}" public-key="${vpn.serverPublicKey || 'MASUKKAN_PUBLIC_KEY_VPS_ANDA'}" endpoint-address="${host}" endpoint-port=51820 \\
+add interface="${iface}" public-key="${vpn.serverPublicKey || DEFAULT_WG_SERVER_PUBKEY}" endpoint-address="${host}" endpoint-port=51820 \\
     allowed-address=0.0.0.0/0 persistent-keepalive=25s comment="Masmedia VPS WireGuard Endpoint"
 
 # 5. Aktifkan Service Winbox, API & Web
@@ -237,13 +440,13 @@ add interface="${iface}" public-key="${vpn.serverPublicKey || 'MASUKKAN_PUBLIC_K
 add chain=input in-interface="${iface}" action=accept place-before=0 comment="Allow Remote via WireGuard Masmedia"
 
 :put "========================================================="
-:put ">>> SUKSES! WIREGUARD (ROS 7) ${vpn.name} BERHASIL DIPASANG <<<"
-:put ">>> Remote Winbox: ${host}:${winboxPort} <<<"
+:put ">>> SUKSES! REMOTE WIREGUARD ${vpn.name} BERHASIL DIPASANG <<<"
+:put ">>> Buka Winbox -> Connect To: ${host}:${winboxPort} <<<"
 :put "========================================================="
 `;
   };
 
-  // Script Generator 2: SSTP (SSL 443)
+  // 2.2 Remote Winbox SSTP (SSL Port 443 - Anti Blokir)
   const generateSstpScript = (vpn: VPNConfig): string => {
     const host = vpn.serverAddress || defaultServerHost;
     const user = vpn.username || 'masmedia';
@@ -252,11 +455,12 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
     const iface = 'sstp-masmedia';
 
     return `# ====================================================================
-# TAB 2. SCRIPT SSTP CLIENT MIKROTIK (SSL PORT 443)
+# [BAGIAN 2] SCRIPT REMOTE WINBOX & MANAJEMEN ROUTER (SSTP SSL PORT 443)
 # Akun: ${vpn.name} | User: ${user}
 # Server Host: ${host} | Port: 443 (SSL TCP - Anti Blokir)
 # Remote Winbox: ${host}:${winboxPort}
 # Kompatibel: RouterOS v6 & RouterOS v7
+# Fungsi: Membuka Akses Remote Winbox, WebFig & API dari Luar Jaringan
 # ====================================================================
 
 # 1. Hapus koneksi SSTP lama jika ada
@@ -281,13 +485,13 @@ add name="${iface}" connect-to="${host}" port=443 user="${user}" \\
 add chain=input in-interface="${iface}" action=accept place-before=0 comment="Allow Remote via SSTP Masmedia"
 
 :put "========================================================="
-:put ">>> SUKSES! SSTP (SSL 443) ${vpn.name} BERHASIL DIHUBUNGKAN! <<<"
-:put ">>> Remote Winbox: ${host}:${winboxPort} <<<"
+:put ">>> SUKSES! REMOTE SSTP (SSL 443) ${vpn.name} BERHASIL AKTIF! <<<"
+:put ">>> Buka Winbox -> Connect To: ${host}:${winboxPort} <<<"
 :put "========================================================="
 `;
   };
 
-  // Script Generator 3: L2TP Ros 6/7
+  // 2.3 Remote Winbox L2TP Ros 6/7
   const generateL2tpScript = (vpn: VPNConfig): string => {
     const host = vpn.serverAddress || defaultServerHost;
     const user = vpn.username || 'masmedia';
@@ -296,11 +500,12 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
     const iface = 'l2tp-masmedia';
 
     return `# ====================================================================
-# TAB 3. SCRIPT L2TP CLIENT MIKROTIK (ROUTEROS v6 & v7)
+# [BAGIAN 2] SCRIPT REMOTE WINBOX & MANAJEMEN ROUTER (L2TP/IPSEC ROS 6 & 7)
 # Akun: ${vpn.name} | User: ${user}
 # Server Host: ${host} | Port: 1701 UDP (IPsec)
 # Remote Winbox: ${host}:${winboxPort}
 # Kompatibel: RouterOS v6 & RouterOS v7
+# Fungsi: Membuka Akses Remote Winbox, WebFig & API dari Luar Jaringan
 # ====================================================================
 
 # 1. Hapus koneksi L2TP lama jika ada
@@ -326,36 +531,62 @@ add name="${iface}" connect-to="${host}" user="${user}" \\
 add chain=input in-interface="${iface}" action=accept place-before=0 comment="Allow Remote via L2TP Masmedia"
 
 :put "========================================================="
-:put ">>> SUKSES! L2TP ROS 6/7 ${vpn.name} AKTIF! <<<"
-:put ">>> Remote Winbox: ${host}:${winboxPort} <<<"
+:put ">>> SUKSES! REMOTE L2TP ROS 6/7 ${vpn.name} AKTIF! <<<"
+:put ">>> Buka Winbox -> Connect To: ${host}:${winboxPort} <<<"
 :put "========================================================="
 `;
   };
 
-  // Get active script according to the active tab
+  // Get active script according to the active mode and protocol tab
   const getActiveScript = (vpn: VPNConfig): string => {
-    switch (activeProtocolTab) {
-      case 'wireguard':
-        return generateWireGuardScript(vpn);
-      case 'sstp':
-        return generateSstpScript(vpn);
-      case 'l2tp':
-        return generateL2tpScript(vpn);
-      default:
-        return generateWireGuardScript(vpn);
+    if (scriptMode === 'radius') {
+      switch (activeProtocolTab) {
+        case 'sstp':
+          return generateRadiusSstpScript(vpn);
+        case 'wireguard':
+          return generateRadiusWireGuardScript(vpn);
+        case 'l2tp':
+          return generateRadiusL2tpScript(vpn);
+        default:
+          return generateRadiusSstpScript(vpn);
+      }
+    } else {
+      switch (activeProtocolTab) {
+        case 'wireguard':
+          return generateWireGuardScript(vpn);
+        case 'sstp':
+          return generateSstpScript(vpn);
+        case 'l2tp':
+          return generateL2tpScript(vpn);
+        default:
+          return generateWireGuardScript(vpn);
+      }
     }
   };
 
   const getActiveProtocolLabel = (): string => {
-    switch (activeProtocolTab) {
-      case 'wireguard':
-        return 'WireGuard (Ros 7)';
-      case 'sstp':
-        return 'SSTP (SSL 443)';
-      case 'l2tp':
-        return 'L2TP Ros 6/7';
-      default:
-        return 'WireGuard (Ros 7)';
+    if (scriptMode === 'radius') {
+      switch (activeProtocolTab) {
+        case 'sstp':
+          return `SSTP RADIUS (Port ${radiusSstpPort})`;
+        case 'wireguard':
+          return 'WireGuard RADIUS (Ros 7)';
+        case 'l2tp':
+          return 'L2TP RADIUS (Ros 6 & 7)';
+        default:
+          return 'SSTP RADIUS';
+      }
+    } else {
+      switch (activeProtocolTab) {
+        case 'wireguard':
+          return 'WireGuard Remote (Ros 7)';
+        case 'sstp':
+          return 'SSTP Remote (SSL 443)';
+        case 'l2tp':
+          return 'L2TP Remote (Ros 6/7)';
+        default:
+          return 'WireGuard Remote (Ros 7)';
+      }
     }
   };
 
@@ -580,22 +811,42 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                             {/* IP Address */}
                             <td className="py-3.5 px-3 font-mono text-slate-300">{ip}</td>
 
-                            {/* Script Mikrotik Button (View with Info icon) */}
+                            {/* Script Mikrotik Buttons: Dipisah antara RADIUS Auth & Remote Winbox */}
                             <td className="py-3.5 px-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedVpnModal(item);
-                                  setActiveProtocolTab('wireguard');
-                                  setShowWaShare(false);
-                                  setCopiedModalScript(false);
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0284c7] hover:bg-sky-600 active:scale-95 text-white font-semibold rounded-lg text-xs transition-all cursor-pointer shadow-sm"
-                                title="Lihat Skrip MikroTik"
-                              >
-                                <Info className="w-3.5 h-3.5" />
-                                <span>View</span>
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedVpnModal(item);
+                                    setScriptMode('radius');
+                                    setActiveProtocolTab('sstp');
+                                    setShowWaShare(false);
+                                    setCopiedModalScript(false);
+                                    if (item.serverAddress) setRadiusConnectTo(item.serverAddress);
+                                    if (item.password) setRadiusSecret(item.password);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600/90 hover:bg-indigo-500 active:scale-95 text-white font-semibold rounded-lg text-xs transition-all cursor-pointer shadow-sm"
+                                  title="Lihat Skrip Autentikasi RADIUS via Tunnel"
+                                >
+                                  <Shield className="w-3.5 h-3.5 text-indigo-200" />
+                                  <span>RADIUS</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedVpnModal(item);
+                                    setScriptMode('remote');
+                                    setActiveProtocolTab('wireguard');
+                                    setShowWaShare(false);
+                                    setCopiedModalScript(false);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-[#0284c7] hover:bg-sky-500 active:scale-95 text-white font-semibold rounded-lg text-xs transition-all cursor-pointer shadow-sm"
+                                  title="Lihat Skrip Remote Winbox & Manajemen"
+                                >
+                                  <Terminal className="w-3.5 h-3.5 text-sky-200" />
+                                  <span>Remote</span>
+                                </button>
+                              </div>
                             </td>
 
                             {/* Action: Delete */}
@@ -705,98 +956,380 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
               </button>
             </div>
 
-            {/* 3 Tab Pilihan Protokol */}
+            {/* PRIMARY MODE SWITCHER: 1. AUTENTIKASI RADIUS vs 2. REMOTE WINBOX */}
+            <div className="p-3.5 bg-slate-900 border-b border-slate-800">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* Tab 1: Autentikasi RADIUS */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScriptMode('radius');
+                    setActiveProtocolTab('sstp');
+                    setShowWaShare(false);
+                    setCopiedModalScript(false);
+                  }}
+                  className={`p-3 rounded-2xl text-left transition-all cursor-pointer flex items-start gap-3 border ${
+                    scriptMode === 'radius'
+                      ? 'bg-indigo-600/15 border-indigo-500/50 shadow-md text-white'
+                      : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${scriptMode === 'radius' ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-100">1. Autentikasi RADIUS</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Tunnel &amp; Route
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                      Routing khusus IP RADIUS ({radiusTargetIp}) via VPN (Format RadbooX &amp; Masmedia)
+                    </p>
+                  </div>
+                </button>
+
+                {/* Tab 2: Remote Winbox & Manajemen */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScriptMode('remote');
+                    setActiveProtocolTab('wireguard');
+                    setShowWaShare(false);
+                    setCopiedModalScript(false);
+                  }}
+                  className={`p-3 rounded-2xl text-left transition-all cursor-pointer flex items-start gap-3 border ${
+                    scriptMode === 'remote'
+                      ? 'bg-sky-600/15 border-sky-500/50 shadow-md text-white'
+                      : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${scriptMode === 'remote' ? 'bg-sky-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <Terminal className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-100">2. Remote Winbox &amp; Manajemen</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                        Akses Luar
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                      Membuka Remote Winbox ({selectedVpnModal.remoteWinboxPort || 18291}), WebFig &amp; API dari luar jaringan
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* SUB-PROTOCOL SELECTOR TABS */}
             <div className="flex items-center gap-1.5 px-5 pt-3 border-b border-slate-800 bg-slate-900/50 overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveProtocolTab('wireguard');
-                  setShowWaShare(false);
-                  setCopiedModalScript(false);
-                }}
-                className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
-                  activeProtocolTab === 'wireguard' && !showWaShare
-                    ? 'border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-lg'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                <span>tab 1. WireGuard (Ros 7)</span>
-              </button>
+              {scriptMode === 'radius' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('sstp');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'sstp' && !showWaShare
+                        ? 'border-indigo-500 text-indigo-300 bg-indigo-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    <span>SSTP (Port {radiusSstpPort} - RadbooX &amp; Masmedia)</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveProtocolTab('sstp');
-                  setShowWaShare(false);
-                  setCopiedModalScript(false);
-                }}
-                className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
-                  activeProtocolTab === 'sstp' && !showWaShare
-                    ? 'border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-lg'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span>tab 2. SSTP (SSL 443)</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('wireguard');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'wireguard' && !showWaShare
+                        ? 'border-indigo-500 text-indigo-300 bg-indigo-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4 text-sky-400" />
+                    <span>WireGuard RADIUS (Ros 7)</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveProtocolTab('l2tp');
-                  setShowWaShare(false);
-                  setCopiedModalScript(false);
-                }}
-                className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
-                  activeProtocolTab === 'l2tp' && !showWaShare
-                    ? 'border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-lg'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Server className="w-4 h-4 text-purple-400" />
-                <span>tab 3. L2TP Ros 6/7</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('l2tp');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'l2tp' && !showWaShare
+                        ? 'border-indigo-500 text-indigo-300 bg-indigo-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Server className="w-4 h-4 text-purple-400" />
+                    <span>L2TP/IPsec RADIUS</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('wireguard');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'wireguard' && !showWaShare
+                        ? 'border-sky-500 text-sky-400 bg-sky-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4 text-sky-400" />
+                    <span>tab 1. WireGuard (Ros 7)</span>
+                  </button>
 
-              {/* Optional: Format WA tab for convenience */}
-              <button
-                type="button"
-                onClick={() => setShowWaShare(true)}
-                className={`ml-auto px-3 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  showWaShare
-                    ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-lg'
-                    : 'border-transparent text-slate-400 hover:text-emerald-300'
-                }`}
-              >
-                <Send className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Format WA</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('sstp');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'sstp' && !showWaShare
+                        ? 'border-sky-500 text-sky-400 bg-sky-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    <span>tab 2. SSTP (SSL 443)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProtocolTab('l2tp');
+                      setShowWaShare(false);
+                      setCopiedModalScript(false);
+                    }}
+                    className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      activeProtocolTab === 'l2tp' && !showWaShare
+                        ? 'border-sky-500 text-sky-400 bg-sky-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Server className="w-4 h-4 text-purple-400" />
+                    <span>tab 3. L2TP Ros 6/7</span>
+                  </button>
+
+                  {/* Format WA tab */}
+                  <button
+                    type="button"
+                    onClick={() => setShowWaShare(true)}
+                    className={`ml-auto px-3 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                      showWaShare
+                        ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-emerald-300'
+                    }`}
+                  >
+                    <Send className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Format WA</span>
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Modal Body */}
             <div className="p-5 space-y-4 overflow-y-auto">
+              {/* PARAMETER CONFIGURATION TOOLBAR (HANYA MUNCUL DI MODE RADIUS) */}
+              {scriptMode === 'radius' && (
+                <div className="bg-[#0a0f1d] border border-indigo-900/40 rounded-2xl p-4 space-y-3 shadow-inner animate-fadeIn">
+                  <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800">
+                    <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                      <Settings className="w-3.5 h-3.5" />
+                      <span>Parameter Skrip RADIUS &amp; Routing (Bisa Disesuaikan Real-Time):</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRadiusTargetIp('103.116.83.83');
+                        setRadiusConnectTo('103.116.83.85');
+                        setRadiusSstpPort(4433);
+                        setRadiusSecret('server@123');
+                        setIncludeRadiusServiceRule(true);
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-indigo-300 underline cursor-pointer"
+                    >
+                      Reset Default RadbooX
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    {/* Input Target IP RADIUS */}
+                    <div className="space-y-1">
+                      <label className="text-slate-400 font-medium text-[11px] block">Target IP RADIUS (/ip route):</label>
+                      <input
+                        type="text"
+                        value={radiusTargetIp}
+                        onChange={e => setRadiusTargetIp(e.target.value)}
+                        placeholder="103.116.83.83"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-indigo-200 font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Input Gateway Server / Connect-To */}
+                    <div className="space-y-1">
+                      <label className="text-slate-400 font-medium text-[11px] block">Connect-To (Gateway Host):</label>
+                      <input
+                        type="text"
+                        value={radiusConnectTo}
+                        onChange={e => setRadiusConnectTo(e.target.value)}
+                        placeholder="103.116.83.85"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Port SSTP Selector */}
+                    {activeProtocolTab === 'sstp' && (
+                      <div className="space-y-1">
+                        <label className="text-slate-400 font-medium text-[11px] block">Port SSTP Client:</label>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setRadiusSstpPort(4433)}
+                            className={`flex-1 py-1.5 rounded-lg font-mono font-bold text-xs border transition-all cursor-pointer ${
+                              radiusSstpPort === 4433
+                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600'
+                            }`}
+                          >
+                            4433 (RadbooX)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRadiusSstpPort(443)}
+                            className={`flex-1 py-1.5 rounded-lg font-mono font-bold text-xs border transition-all cursor-pointer ${
+                              radiusSstpPort === 443
+                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600'
+                            }`}
+                          >
+                            443 (SSL)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Secret RADIUS */}
+                    <div className="space-y-1">
+                      <label className="text-slate-400 font-medium text-[11px] block">RADIUS Shared Secret:</label>
+                      <input
+                        type="text"
+                        value={radiusSecret}
+                        onChange={e => setRadiusSecret(e.target.value)}
+                        placeholder="server@123"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Baris Pilihan: Versi RouterOS & Checkbox Radius & SNMP */}
+                  <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 text-[11px] font-semibold">Versi RouterOS:</span>
+                      <div className="inline-flex rounded-lg p-0.5 bg-slate-900 border border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setRadiusRouterOsVersion('v7')}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                            radiusRouterOsVersion === 'v7'
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          RouterOS v7
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRadiusRouterOsVersion('v6')}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                            radiusRouterOsVersion === 'v6'
+                              ? 'bg-blue-600 text-white'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          RouterOS v6
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={includeRadiusServiceRule}
+                        onChange={e => setIncludeRadiusServiceRule(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0"
+                      />
+                      <span>Sertakan <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">/radius add</code> &amp; <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">/radius incoming</code> (CoA 3799)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={includeSnmpRule}
+                        onChange={e => setIncludeSnmpRule(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0"
+                      />
+                      <span>Sertakan <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300 font-mono">/snmp community</code> ({snmpCommunityName})</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
               {!showWaShare ? (
                 <div className="space-y-3 animate-fadeIn">
                   {/* Protocol Guide Callout */}
-                  <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-200 leading-relaxed">
-                    <div className="flex items-center gap-2 font-bold text-blue-100 mb-1">
-                      <Shield className="w-4 h-4 text-blue-400 shrink-0" />
-                      <span>Protokol {getActiveProtocolLabel()}</span>
+                  <div className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
+                    scriptMode === 'radius'
+                      ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-200'
+                      : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
+                  }`}>
+                    <div className="flex items-center gap-2 font-bold text-slate-100 mb-1">
+                      {scriptMode === 'radius' ? (
+                        <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                      ) : (
+                        <Terminal className="w-4 h-4 text-sky-400 shrink-0" />
+                      )}
+                      <span>
+                        {scriptMode === 'radius'
+                          ? `Skrip Autentikasi RADIUS via ${getActiveProtocolLabel()}`
+                          : `Skrip Remote Winbox via ${getActiveProtocolLabel()}`}
+                      </span>
                     </div>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
-                      {activeProtocolTab === 'wireguard' && (
+                      {scriptMode === 'radius' ? (
                         <>
-                          WireGuard adalah protokol VPN modern berkecepatan tinggi dengan enkripsi mutakhir, khusus untuk MikroTik RouterOS v7. Salin skrip di bawah lalu tempelkan (paste) di <strong>Winbox &gt; New Terminal</strong>.
+                          <strong>Fungsi Script:</strong> Menghubungkan tunnel VPN dan menambahkan aturan routing{' '}
+                          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-indigo-300 font-mono">
+                            /ip route add dst-address={radiusTargetIp} gateway={activeProtocolTab === 'wireguard' ? 'wg-radius' : activeProtocolTab === 'l2tp' ? 'l2tp-Radius' : 'sstp-RadbooX'}
+                          </code>.
+                          Dengan routing ini, <em>hanya</em> komunikasi autentikasi PPPoE, Hotspot &amp; Isolir yang diarahkan ke Server RADIUS, sedangkan <strong>seluruh trafik internet pelanggan tetap berjalan normal lewat ISP lokal router</strong>.
                         </>
-                      )}
-                      {activeProtocolTab === 'sstp' && (
+                      ) : (
                         <>
-                          SSTP menggunakan port 443 SSL (TCP), sangat andal menembus blokir ISP / Starlink / GSM tanpa perlu konfigurasi rumit. Kompatibel dengan MikroTik RouterOS v6 dan v7.
-                        </>
-                      )}
-                      {activeProtocolTab === 'l2tp' && (
-                        <>
-                          L2TP/IPsec adalah protokol standar industri yang kompatibel untuk semua versi MikroTik RouterOS (v6 &amp; v7). Salin dan tempelkan ke New Terminal Winbox.
+                          <strong>Fungsi Script:</strong> Membuka akses jarak jauh ke <strong>Winbox (Port 8291)</strong>, <strong>WebFig (Port 80)</strong>, dan <strong>API (Port 8728)</strong> melalui server VPS Masmedia. Anda dapat mengakses router MikroTik dari mana saja menggunakan alamat:
+                          <span className="block mt-1 font-mono text-sky-300 font-bold">
+                            Connect To: {selectedVpnModal.serverAddress || serverHost}:{selectedVpnModal.remoteWinboxPort || 18291}
+                          </span>
                         </>
                       )}
                     </p>
@@ -805,26 +1338,26 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                   {/* Terminal Script Code Box */}
                   <div className="relative">
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-950 border-t border-x border-slate-800 rounded-t-xl text-[11px] text-slate-400 font-mono">
-                      <span>{getActiveProtocolLabel()} - Siap Tempel di Terminal MikroTik</span>
+                      <span>{getActiveProtocolLabel()} - Tempelkan di Winbox &gt; New Terminal</span>
                       <button
                         type="button"
                         onClick={() => handleCopyScript(getActiveScript(selectedVpnModal))}
-                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                        className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 cursor-pointer"
                       >
                         {copiedModalScript ? (
                           <>
                             <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="text-emerald-400">Tersalin!</span>
+                            <span className="text-emerald-400 font-bold">Tersalin!</span>
                           </>
                         ) : (
                           <>
                             <Copy className="w-3.5 h-3.5" />
-                            <span>Salin</span>
+                            <span>Salin Skrip</span>
                           </>
                         )}
                       </button>
                     </div>
-                    <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-blue-500 selection:text-white">
+                    <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-indigo-500 selection:text-white">
                       {getActiveScript(selectedVpnModal)}
                     </pre>
                   </div>
@@ -848,29 +1381,38 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
 
             {/* Modal Footer */}
             <div className="p-4 border-t border-slate-800 bg-slate-900/90 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Connect To:</span>
-                <span className="font-mono text-emerald-400 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                  {selectedVpnModal.serverAddress || serverHost}:{selectedVpnModal.remoteWinboxPort || 18291}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopyScript(
-                      `${selectedVpnModal.serverAddress || serverHost}:${selectedVpnModal.remoteWinboxPort || 18291}`,
-                      'winbox-conn'
-                    )
-                  }
-                  className="p-1 hover:text-white transition-colors cursor-pointer"
-                  title="Salin alamat Winbox"
-                >
-                  {quickCopiedId === 'winbox-conn' ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5 text-slate-400" />
-                  )}
-                </button>
-              </div>
+              {scriptMode === 'remote' ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Remote Winbox:</span>
+                  <span className="font-mono text-emerald-400 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                    {selectedVpnModal.serverAddress || serverHost}:{selectedVpnModal.remoteWinboxPort || 18291}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopyScript(
+                        `${selectedVpnModal.serverAddress || serverHost}:${selectedVpnModal.remoteWinboxPort || 18291}`,
+                        'winbox-conn'
+                      )
+                    }
+                    className="p-1 hover:text-white transition-colors cursor-pointer"
+                    title="Salin alamat Winbox"
+                  >
+                    {quickCopiedId === 'winbox-conn' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 text-slate-400" />
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Target Server RADIUS:</span>
+                  <span className="font-mono text-indigo-300 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                    {radiusTargetIp} via {activeProtocolTab === 'wireguard' ? 'wg-radius' : activeProtocolTab === 'l2tp' ? 'l2tp-Radius' : 'sstp-RadbooX'}
+                  </span>
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <button
@@ -890,7 +1432,11 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                       handleCopyScript(getActiveScript(selectedVpnModal));
                     }
                   }}
-                  className="bg-[#1e88e5] hover:bg-blue-600 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                  className={`font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer active:scale-95 text-white ${
+                    scriptMode === 'radius'
+                      ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/25'
+                      : 'bg-[#0284c7] hover:bg-sky-500 shadow-sky-600/25'
+                  }`}
                 >
                   {copiedModalScript ? (
                     <>

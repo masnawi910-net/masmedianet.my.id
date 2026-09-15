@@ -37,6 +37,12 @@ import {
   FileSpreadsheet,
   FileText,
   Power,
+  Copy,
+  Check,
+  Zap,
+  Server,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export const PPPDHCPView: React.FC = () => {
@@ -58,6 +64,7 @@ export const PPPDHCPView: React.FC = () => {
     isolateCustomer,
     unIsolateCustomer,
     setActiveTab,
+    radiusServerConfig,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'user' | 'session' | 'profile' | 'setting'>('user');
@@ -65,6 +72,9 @@ export const PPPDHCPView: React.FC = () => {
   const [serviceFilter, setServiceFilter] = useState<'all' | 'pppoe' | 'dhcp'>('all');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [pppRouterOsVersion, setPppRouterOsVersion] = useState<'v7' | 'v6'>('v7');
+  const [copiedPppScript, setCopiedPppScript] = useState(false);
+  const [showPppSecret, setShowPppSecret] = useState(false);
 
   // User Modal State (Add / Edit)
   const [showUserModal, setShowUserModal] = useState(false);
@@ -874,82 +884,255 @@ export const PPPDHCPView: React.FC = () => {
 
       {/* SUB-MENU 4: SETTING */}
       {activeSubTab === 'setting' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
-              <Settings className="w-5 h-5 text-emerald-400" />
-              Pengaturan RADIUS Server PPP
-            </h3>
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">RADIUS Server IP</label>
-                <input
-                  type="text"
-                  readOnly
-                  value="127.0.0.1 / 192.168.10.1"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Column 1: Configuration Parameters */}
+            <div className="lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-emerald-400" />
+                  Pengaturan RADIUS Server PPP
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+                  Masmedia AAA
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div className="space-y-3.5 text-xs">
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Auth Port</label>
+                  <label className="block text-slate-400 font-semibold mb-1">RADIUS Server IP</label>
                   <input
                     type="text"
                     readOnly
-                    value="1812"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    value={radiusServerConfig?.serverIp || '103.116.83.83'}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold"
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Auth Port</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={radiusServerConfig?.authPort || 1812}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Acct Port</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={radiusServerConfig?.acctPort || 1813}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Acct Port</label>
-                  <input
-                    type="text"
-                    readOnly
-                    value="1813"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                  />
+                  <label className="block text-slate-400 font-semibold mb-1">RADIUS Secret Key</label>
+                  <div className="relative">
+                    <input
+                      type={showPppSecret ? 'text' : 'password'}
+                      readOnly
+                      value={radiusServerConfig?.secretKey || 'Server@123'}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPppSecret(!showPppSecret)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    >
+                      {showPppSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">RADIUS Secret</label>
-                <input
-                  type="password"
-                  readOnly
-                  value="rtrw_radius_secret_2026"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">CoA / PoD Port (Disconnect)</label>
-                <input
-                  type="text"
-                  readOnly
-                  value="3799"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">CoA / PoD Port</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={radiusServerConfig?.coaPort || 3799}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-cyan-400 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">SNMP Server IP</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value="103.116.83.82/32"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 space-y-1">
+                  <p>• Layanan didukung: <span className="text-white font-mono">ppp, hotspot, dhcp</span></p>
+                  <p>• Accounting Interim: <span className="text-emerald-400 font-mono">1m</span> (Kirim kuota per menit)</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
-              <Router className="w-5 h-5 text-blue-400" />
-              Script Sinkronisasi MikroTik
-            </h3>
-            <p className="text-xs text-slate-400">
-              Jalankan script Terminal MikroTik berikut untuk mengaktifkan RADIUS PPP Client:
-            </p>
-            <pre className="bg-slate-950 p-4 rounded-xl text-emerald-400 font-mono text-[11px] overflow-x-auto border border-slate-800 leading-relaxed">
-{`/radius add service=ppp,hotspot address=192.168.10.1 secret=rtrw_radius_secret_2026 authentication-port=1812 accounting-port=1813 timeout=3000ms
-/radius incoming set accept=yes port=3799
-/ppp aaa set use-radius=yes interim-update=1m accounting=yes`}
-            </pre>
-            <button
-              onClick={() => alert('Script berhasil disalin ke clipboard!')}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2 rounded-xl text-xs w-full transition-all"
-            >
-              Salin Script MikroTik
-            </button>
+            {/* Column 2: Synchronized MikroTik Script */}
+            <div className="lg:col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Router className="w-5 h-5 text-blue-400" />
+                  Script Sinkronisasi MikroTik (PPP &amp; AAA)
+                </h3>
+
+                {/* RouterOS Version Switcher */}
+                <div className="inline-flex rounded-lg p-0.5 bg-slate-950 border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPppRouterOsVersion('v7');
+                      setCopiedPppScript(false);
+                    }}
+                    className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-all ${
+                      pppRouterOsVersion === 'v7'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-3 h-3 text-indigo-200" />
+                    <span>RouterOS v7</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPppRouterOsVersion('v6');
+                      setCopiedPppScript(false);
+                    }}
+                    className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-all ${
+                      pppRouterOsVersion === 'v6'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Server className="w-3 h-3 text-blue-200" />
+                    <span>RouterOS v6</span>
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300">
+                Jalankan script Terminal MikroTik berikut untuk mengaktifkan RADIUS PPP Client, CoA Disconnect (Port 3799), dan Accounting:
+              </p>
+
+              <pre className="bg-slate-950 p-4 rounded-xl text-emerald-400 font-mono text-[11.5px] overflow-x-auto border border-slate-800 leading-relaxed max-h-64">
+                {pppRouterOsVersion === 'v7' ? (
+`# 1. Pendaftaran RADIUS Server MikroTik RouterOS v7
+/radius
+add address=${radiusServerConfig?.serverIp || '103.116.83.83'} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret="${radiusServerConfig?.secretKey || 'Server@123'}"
+
+# 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
+/radius incoming
+set accept=yes port=3799
+
+# 3. Aktifkan AAA RADIUS untuk PPP / PPPoE
+/ppp aaa
+set use-radius=yes interim-update=1m accounting=yes
+
+# 4. Aktifkan Monitoring SNMP (Community: Masmedia)
+/snmp community
+set [ find default=yes ] disabled=yes
+add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+/snmp
+set enabled=yes`
+                ) : (
+`# 1. Pendaftaran RADIUS Server MikroTik RouterOS v6
+/radius
+add address=${radiusServerConfig?.serverIp || '103.116.83.83'} secret="${radiusServerConfig?.secretKey || 'Server@123'}" service=ppp,hotspot,dhcp timeout=2000ms
+
+# 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
+/radius incoming
+set accept=yes port=3799
+
+# 3. Aktifkan AAA RADIUS untuk PPP / PPPoE
+/ppp aaa
+set use-radius=yes interim-update=1m accounting=yes
+
+# 4. Aktifkan Monitoring SNMP (Community: Masmedia)
+/snmp community
+set [ find default=yes ] disabled=yes
+add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+/snmp
+set enabled=yes`
+                )}
+              </pre>
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <span className="text-[11px] text-slate-400">
+                  Diverifikasi untuk MikroTik RouterOS {pppRouterOsVersion.toUpperCase()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const textToCopy = pppRouterOsVersion === 'v7' ? (
+`# 1. Pendaftaran RADIUS Server MikroTik RouterOS v7
+/radius
+add address=${radiusServerConfig?.serverIp || '103.116.83.83'} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret="${radiusServerConfig?.secretKey || 'Server@123'}"
+
+# 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
+/radius incoming
+set accept=yes port=3799
+
+# 3. Aktifkan AAA RADIUS untuk PPP / PPPoE
+/ppp aaa
+set use-radius=yes interim-update=1m accounting=yes
+
+# 4. Aktifkan Monitoring SNMP (Community: Masmedia)
+/snmp community
+set [ find default=yes ] disabled=yes
+add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+/snmp
+set enabled=yes`
+                    ) : (
+`# 1. Pendaftaran RADIUS Server MikroTik RouterOS v6
+/radius
+add address=${radiusServerConfig?.serverIp || '103.116.83.83'} secret="${radiusServerConfig?.secretKey || 'Server@123'}" service=ppp,hotspot,dhcp timeout=2000ms
+
+# 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
+/radius incoming
+set accept=yes port=3799
+
+# 3. Aktifkan AAA RADIUS untuk PPP / PPPoE
+/ppp aaa
+set use-radius=yes interim-update=1m accounting=yes
+
+# 4. Aktifkan Monitoring SNMP (Community: Masmedia)
+/snmp community
+set [ find default=yes ] disabled=yes
+add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+/snmp
+set enabled=yes`
+                    );
+
+                    navigator.clipboard.writeText(textToCopy);
+                    setCopiedPppScript(true);
+                    setTimeout(() => setCopiedPppScript(false), 3000);
+                  }}
+                  className="bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
+                >
+                  {copiedPppScript ? (
+                    <>
+                      <Check className="w-4 h-4 text-slate-950" />
+                      <span>Script Tersalin ke Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>Salin Script MikroTik ({pppRouterOsVersion.toUpperCase()})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

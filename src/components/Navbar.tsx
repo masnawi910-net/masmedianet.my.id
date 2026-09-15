@@ -242,7 +242,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         ? 'bg-rose-950/40 hover:bg-rose-900/50 border-rose-800/40 text-rose-300'
                         : 'bg-rose-950/60 hover:bg-rose-900/70 border-rose-500/40 text-rose-200'
                     }`}
-                    title={`${nas.name} (${nas.ipAddress}) - Status: ${isOnline ? `ONLINE - CPU: ${nas.cpuLoad}%` : 'OFFLINE (Belum Terhubung)'} - Klik untuk Buka Manajemen Router`}
+                    title={`${nas.name} (${nas.ipAddress}) - Status SNMP: ${isOnline ? `Online (CPU: ${nas.cpuLoad}%)` : 'Offline'} - Klik untuk Buka Manajemen Router`}
                   >
                     <Server className={`w-3.5 h-3.5 ${isOnline ? (isDark ? 'text-slate-400' : 'text-pink-300') : 'text-rose-400'}`} />
                     <span className="font-medium truncate max-w-[90px] text-[11px]">{nas.name}</span>

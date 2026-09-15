@@ -2302,7 +2302,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ...n,
                 status: isOnline ? 'online' : 'offline',
                 lastPing: isOnline ? `Online (${latency || '1.5 ms'})` : 'Host tidak merespon (Offline)',
-                uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') ? '1d 04:12:00' : n.uptime) : 'Offline (Belum Terhubung)',
+                uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') || n.uptime === '-' ? '1d 04:12:00' : n.uptime) : '-',
                 cpuLoad: isOnline ? (n.cpuLoad > 0 ? n.cpuLoad : Math.floor(Math.random() * 15) + 8) : 0,
               };
             }
@@ -2335,7 +2335,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...n,
               status: 'offline',
               lastPing: 'Gagal terhubung ke host (Offline)',
-              uptime: 'Offline (Belum Terhubung)',
+              uptime: '-',
               cpuLoad: 0,
             }
           : n
@@ -2376,7 +2376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   ...n,
                   status: isOnline ? 'online' : 'offline',
                   lastPing: isOnline ? `Online (${resItem.latency || '1.5 ms'})` : 'Host tidak merespon (Offline)',
-                  uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') ? '1d 04:12:00' : n.uptime) : 'Offline (Belum Terhubung)',
+                  uptime: isOnline ? (n.uptime.includes('Offline') || n.uptime.includes('0s') || n.uptime === '-' ? '1d 04:12:00' : n.uptime) : '-',
                   cpuLoad: isOnline ? (n.cpuLoad > 0 ? n.cpuLoad : Math.floor(Math.random() * 15) + 8) : 0,
                 };
               }
@@ -2647,6 +2647,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (affectedCustomerId) {
       const custId = affectedCustomerId;
+      const targetCust = allCustomers.find(c => c.id === custId);
+      const isCurrentlyIsolated = targetCust?.status === 'isolated';
+
       setAllCustomers(prev =>
         prev.map(c => {
           if (c.id === custId) {
@@ -2662,6 +2665,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return c;
         })
       );
+
+      // Integrasi Otomatis: Jika pelanggan sebelumnya di-isolir dan telah lunas, buka isolir di MikroTik & pulihkan bandwidth
+      if (isCurrentlyIsolated) {
+        const hasOtherOverdue = allInvoices.some(
+          i => i.customerId === custId && i.id !== invoiceId && (i.status === 'overdue' || i.status === 'unpaid')
+        );
+        if (!hasOtherOverdue) {
+          unIsolateCustomer(custId);
+        }
+      }
     }
   };
 

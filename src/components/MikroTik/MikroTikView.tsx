@@ -122,6 +122,7 @@ export const MikroTikView: React.FC<MikroTikViewProps> = ({ initialTab = 'sessio
 
   // Kick feedback toast
   const [kickToast, setKickToast] = useState<string | null>(null);
+  const [sessionServiceFilter, setSessionServiceFilter] = useState<'all' | 'pppoe' | 'hotspot'>('all');
 
   // Terminal State
   const [terminalInput, setTerminalInput] = useState('');
@@ -495,13 +496,20 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
     }
   };
 
-  const filteredSessions = activeSessions.filter(
-    s =>
+  const pppoeSessionsCount = activeSessions.filter(s => s.service === 'pppoe' || !s.service).length;
+  const hotspotSessionsCount = activeSessions.filter(s => s.service === 'hotspot').length;
+
+  const filteredSessions = activeSessions.filter(s => {
+    const matchesSearch =
       s.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.ipAddress.includes(searchQuery) ||
-      s.macAddress.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      s.macAddress.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesService =
+      sessionServiceFilter === 'all' ||
+      (sessionServiceFilter === 'pppoe' ? (s.service === 'pppoe' || !s.service) : s.service === 'hotspot');
+    return matchesSearch && matchesService;
+  });
 
   const currentScript =
     selectedScript === 'radius'
@@ -627,7 +635,40 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
+                <button
+                  onClick={() => setSessionServiceFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    sessionServiceFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Semua ({activeSessions.length})
+                </button>
+                <button
+                  onClick={() => setSessionServiceFilter('pppoe')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    sessionServiceFilter === 'pppoe'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  PPPoE ({pppoeSessionsCount})
+                </button>
+                <button
+                  onClick={() => setSessionServiceFilter('hotspot')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    sessionServiceFilter === 'hotspot'
+                      ? 'bg-cyan-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Hotspot ({hotspotSessionsCount})
+                </button>
+              </div>
+
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -635,7 +676,7 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                   placeholder="Cari user, IP, MAC..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-xs bg-slate-950 border border-slate-800 rounded-xl text-white font-medium focus:border-blue-500 focus:outline-none w-48 sm:w-64"
+                  className="pl-8 pr-3 py-1.5 text-xs bg-slate-950 border border-slate-800 rounded-xl text-white font-medium focus:border-blue-500 focus:outline-none w-44 sm:w-56"
                 />
               </div>
             </div>
@@ -824,12 +865,12 @@ add chain=input in-interface="vpn-masmedia" action=accept comment="Allow API & W
                     {nas.status === 'online' ? (
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
-                        ONLINE ({nas.lastPing || '12ms'})
+                        Status SNMP: Online ({nas.lastPing || '12ms'})
                       </span>
                     ) : (
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" />
-                        OFFLINE (Belum Terhubung)
+                        Status SNMP: Offline
                       </span>
                     )}
                   </div>

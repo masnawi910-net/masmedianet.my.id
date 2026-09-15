@@ -25,6 +25,7 @@ import {
   RotateCw,
   Activity,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
 
 export interface RadiusSettingViewProps {
@@ -79,6 +80,22 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   // Modal State for "Skrip Mikrotik" (Lihat)
   const [selectedNasForScript, setSelectedNasForScript] = useState<MikroTikNAS | null>(null);
   const [copiedModalScript, setCopiedModalScript] = useState(false);
+  const [activeNasScriptTab, setActiveNasScriptTab] = useState<'v7' | 'v6' | 'snmp' | 'all'>('v7');
+  const [nasRadiusIp, setNasRadiusIp] = useState('103.116.83.83');
+  const [nasRadiusSecret, setNasRadiusSecret] = useState('Server@123');
+  const [nasSnmpIp, setNasSnmpIp] = useState('103.116.83.82/32');
+  const [nasSnmpCommunity, setNasSnmpCommunity] = useState('Masmedia');
+  const [nasRadiusServices, setNasRadiusServices] = useState('ppp,hotspot,dhcp');
+  const [nasAllVersion, setNasAllVersion] = useState<'v7' | 'v6'>('v7');
+
+  const openNasScriptModal = (nas: MikroTikNAS, tab: 'v7' | 'v6' | 'snmp' | 'all' = 'v7') => {
+    setSelectedNasForScript(nas);
+    setActiveNasScriptTab(tab);
+    setCopiedModalScript(false);
+    if (nas.radiusSecret) {
+      setNasRadiusSecret(nas.radiusSecret);
+    }
+  };
 
   // Modal State for "Edit NAS"
   const [editingNas, setEditingNas] = useState<MikroTikNAS | null>(null);
@@ -285,46 +302,111 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 `;
   };
 
-  // 2. Skrip NAS (RADIUS AAA + CoA Port 3799 + SNMP)
-  const generateNasRadiusScript = (nas: MikroTikNAS): string => {
-    const host = radiusServerHost;
-    const secret = nas.radiusSecret || 'Server@123';
-    const authPort = radiusServerConfig?.authPort || 1812;
-    const acctPort = radiusServerConfig?.acctPort || 1813;
-    const coaPort = radiusServerConfig?.coaPort || 3799;
+  // 1. Script Add New Radius Server MikroTik V7 (RouterOS v7)
+  const generateScriptRadiusV7 = (nas: MikroTikNAS): string => {
+    const radIp = nasRadiusIp.trim() || '103.116.83.83';
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
+    const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
+
+    return `/radius
+ add address=${radIp} require-message-auth=no service=${services} timeout=2s secret=${secret}
+/radius incoming 
+ set accept=yes`;
+  };
+
+  // 2. Script Add New Radius Server MikroTik (RouterOS v6)
+  const generateScriptRadiusV6 = (nas: MikroTikNAS): string => {
+    const radIp = nasRadiusIp.trim() || '103.116.83.83';
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
+    const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
+
+    return `/radius 
+ add address=${radIp} secret="${secret}" service=${services} timeout=2000ms 
+/radius incoming 
+ set accept=yes`;
+  };
+
+  // 3. Script Enable SNMP MikroTik (Masmedia Network Management)
+  const generateScriptSnmp = (nas: MikroTikNAS): string => {
+    const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
+    const communityName = nasSnmpCommunity.trim() || 'Masmedia';
+
+    return `/snmp community 
+ set [ find default=yes ] disabled=yes 
+ add addresses=${snmpAddress} name=${communityName} write-access=yes read-access=yes
+/snmp 
+ set enabled=yes`;
+  };
+
+  // 4. Skrip Lengkap (All-in-One: RADIUS + CoA 3799 + SNMP Masmedia + AAA Integration)
+  const generateScriptAll = (nas: MikroTikNAS, version: 'v7' | 'v6' = nasAllVersion): string => {
+    const radIp = nasRadiusIp.trim() || '103.116.83.83';
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
+    const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
+    const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
+    const communityName = nasSnmpCommunity.trim() || 'Masmedia';
 
     return `# ====================================================================
-# 2. SCRIPT KONFIGURASI RADIUS & SNMP MIKROTIK - ${nas.name}
-# IP RADIUS Server : ${host}
-# Secret Key RADIUS: ${secret}
+# SCRIPT LENGKAP RADIUS & SNMP MIKROTIK (${version === 'v7' ? 'ROUTEROS v7' : 'ROUTEROS v6'})
+# Router NAS : ${nas.name} (${nas.ipAddress})
+# Aplikasi   : Masmedia Network Management
 # ====================================================================
 
-# 2.1. Bersihkan konfigurasi RADIUS lama
+# 1. Bersihkan konfigurasi RADIUS lama
 /radius remove [find comment~"Masmedia|RadbooX|Billing|FreeRADIUS"]
 
-# 2.2. Daftarkan RADIUS Server untuk Service PPP & Hotspot
-/radius add address=${host} secret="${secret}" \\
-    service=ppp,hotspot authentication-port=${authPort} accounting-port=${acctPort} \\
-    timeout=3000ms comment="Masmedia FreeRADIUS Server"
+# 2. Tambahkan RADIUS Server Masmedia (${version === 'v7' ? 'RouterOS v7' : 'RouterOS v6'})
+${
+  version === 'v7'
+    ? `/radius
+ add address=${radIp} require-message-auth=no service=${services} timeout=2s secret=${secret} comment="Server RADIUS Masmedia (v7)"`
+    : `/radius
+ add address=${radIp} secret="${secret}" service=${services} timeout=2000ms comment="Server RADIUS Masmedia (v6)"`
+}
 
-# 2.3. Aktifkan Incoming RADIUS (CoA / Packet of Disconnect untuk Kick & Isolir Otomatis)
-/radius incoming set accept=yes port=${coaPort}
+# 3. Aktifkan Incoming Request (CoA / Disconnect Port 3799 untuk Kick & Isolir Otomatis)
+/radius incoming 
+ set accept=yes port=3799
 
-# 2.4. Sinkronkan PPP AAA dengan FreeRADIUS Server
-/ppp aaa set use-radius=yes accounting=yes interim-update=00:01:00
+# 4. Aktifkan SNMP MikroTik dengan Community Masmedia (Aplikasi Ini)
+/snmp community 
+ set [ find default=yes ] disabled=yes 
+ add addresses=${snmpAddress} name=${communityName} write-access=yes read-access=yes
+/snmp 
+ set enabled=yes contact="admin@masmedianet" location="${nas.name}"
 
-# 2.5. Sinkronkan Hotspot Server Profile dengan RADIUS
-/ip hotspot profile set [find default=yes] use-radius=yes radius-accounting=yes radius-interim-update=00:01:00 \\
-    login-by=http-chap,http-pap,mac-cookie split-user-domain=no
+# 5. Sinkronkan PPP AAA dengan RADIUS Server
+/ppp aaa 
+ set use-radius=yes accounting=yes interim-update=00:01:00
 
-# 2.6. Aktifkan Layanan SNMP MikroTik (Port UDP 161)
-/snmp set enabled=yes contact="admin@masmedianet" location="NOC Masmedia"
-/snmp community set [find default=yes] name=public read-access=yes addresses=0.0.0.0/0
+# 6. Sinkronkan Hotspot Server Profile dengan RADIUS
+/ip hotspot profile 
+ set [find default=yes] use-radius=yes radius-accounting=yes radius-interim-update=00:01:00
 
 :put "========================================================="
-:put ">>> [2/3] SUKSES! CONFIG RADIUS & SNMP BERHASIL DIPASANG <<<"
+:put ">>> SUKSES! KONFIGURASI RADIUS & SNMP MASMEDIA AKTIF! <<<"
 :put "========================================================="
 `;
+  };
+
+  // Helper untuk mendapatkan skrip aktif pada modal
+  const getCurrentModalScript = (nas: MikroTikNAS): string => {
+    switch (activeNasScriptTab) {
+      case 'v7':
+        return generateScriptRadiusV7(nas);
+      case 'v6':
+        return generateScriptRadiusV6(nas);
+      case 'snmp':
+        return generateScriptSnmp(nas);
+      case 'all':
+      default:
+        return generateScriptAll(nas, nasAllVersion);
+    }
+  };
+
+  // Legacy fallback alias
+  const generateNasRadiusScript = (nas: MikroTikNAS): string => {
+    return generateScriptAll(nas, 'v7');
   };
 
   // 3. Skrip Scheduler Otomatis (Heartbeat Sinyal Realtime ke Dashboard)
@@ -832,19 +914,46 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                         </div>
                       </div>
 
-                      {/* Row 6: Skrip Mikrotik (Lihat Skrip NAS) */}
+                      {/* Row 6: Skrip Mikrotik (ROS v7, ROS v6, SNMP Masmedia, Lengkap) */}
                       <div className="grid grid-cols-12 items-center pt-1">
                         <div className="col-span-4 sm:col-span-3 text-slate-400">Skrip Mikrotik</div>
                         <div className="col-span-1 text-center text-slate-500">:</div>
-                        <div className="col-span-7 sm:col-span-8 flex items-center flex-wrap gap-2">
+                        <div className="col-span-7 sm:col-span-8 flex items-center flex-wrap gap-1.5">
                           <button
                             type="button"
-                            onClick={() => setSelectedNasForScript(nas)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-md shadow transition-all cursor-pointer text-xs"
-                            title="Lihat skrip NAS & FreeRADIUS MikroTik"
+                            onClick={() => openNasScriptModal(nas, 'v7')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600/90 hover:bg-indigo-500 active:scale-95 text-white font-semibold rounded-lg shadow-sm transition-all cursor-pointer text-xs"
+                            title="Lihat Skrip RADIUS MikroTik RouterOS v7"
                           >
-                            <Terminal className="w-3.5 h-3.5" />
-                            <span>Lihat Skrip NAS</span>
+                            <Zap className="w-3 h-3 text-indigo-200" />
+                            <span>ROS v7</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openNasScriptModal(nas, 'v6')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600/90 hover:bg-blue-500 active:scale-95 text-white font-semibold rounded-lg shadow-sm transition-all cursor-pointer text-xs"
+                            title="Lihat Skrip RADIUS MikroTik RouterOS v6"
+                          >
+                            <Server className="w-3 h-3 text-blue-200" />
+                            <span>ROS v6</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openNasScriptModal(nas, 'snmp')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-600/90 hover:bg-amber-500 active:scale-95 text-white font-semibold rounded-lg shadow-sm transition-all cursor-pointer text-xs"
+                            title="Lihat Skrip Enable SNMP MikroTik (Masmedia)"
+                          >
+                            <Activity className="w-3 h-3 text-amber-200" />
+                            <span>SNMP</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openNasScriptModal(nas, 'all')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-semibold rounded-lg shadow-sm transition-all cursor-pointer text-xs"
+                            title="Lihat Skrip Lengkap (RADIUS + CoA + SNMP + AAA)"
+                          >
+                            <Radio className="w-3 h-3 text-emerald-200" />
+                            <span>Lengkap</span>
                           </button>
                         </div>
                       </div>
@@ -872,17 +981,17 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
       {/* Modal Dialog: Skrip MikroTik NAS Ready to Copy (When clicking [Lihat Skrip NAS]) */}
       {selectedNasForScript && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-[#111827] border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
-                  <Radio className="w-5 h-5" />
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/95">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 shrink-0">
+                  <Terminal className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-base font-bold text-white">
-                      Skrip MikroTik NAS (FreeRADIUS) - {selectedNasForScript.name}
+                      Skrip MikroTik NAS &amp; RADIUS - {selectedNasForScript.name}
                     </h3>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -894,45 +1003,276 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                       {selectedNasForScript.status === 'online' ? '● Online (SNMP Aktif)' : '○ Belum Dikonfigurasi di Winbox'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    Host RADIUS: <span className="font-mono text-emerald-400">{radiusServerHost}</span> | Secret: <span className="font-mono text-emerald-300">{selectedNasForScript.radiusSecret || 'Server@123'}</span>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    IP Router: <span className="font-mono text-emerald-300 font-semibold">{selectedNasForScript.ipAddress}</span> | Server RADIUS: <span className="font-mono text-indigo-300 font-semibold">{nasRadiusIp}</span>
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedNasForScript(null)}
                 className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                title="Tutup"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="p-5 space-y-4 overflow-y-auto">
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-200 leading-relaxed space-y-1.5">
-                <div className="flex items-center gap-2 font-bold text-emerald-100 text-sm">
-                  <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Skrip Konfigurasi NAS & FreeRADIUS MikroTik</span>
+            {/* TAB SELECTOR: 4 PILIHAN SKRIP */}
+            <div className="flex items-center gap-1.5 px-4 sm:px-5 pt-3 border-b border-slate-800 bg-slate-900/60 overflow-x-auto">
+              {/* Tab 1: RouterOS v7 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNasScriptTab('v7');
+                  setCopiedModalScript(false);
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  activeNasScriptTab === 'v7'
+                    ? 'border-indigo-500 text-indigo-300 bg-indigo-500/10 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Radius MikroTik V7</span>
+              </button>
+
+              {/* Tab 2: RouterOS v6 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNasScriptTab('v6');
+                  setCopiedModalScript(false);
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  activeNasScriptTab === 'v6'
+                    ? 'border-blue-500 text-blue-300 bg-blue-500/10 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5 text-blue-400" />
+                <span>Radius MikroTik (v6)</span>
+              </button>
+
+              {/* Tab 3: Enable SNMP MikroTik */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNasScriptTab('snmp');
+                  setCopiedModalScript(false);
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  activeNasScriptTab === 'snmp'
+                    ? 'border-amber-500 text-amber-300 bg-amber-500/10 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5 text-amber-400" />
+                <span>Enable SNMP (Masmedia)</span>
+              </button>
+
+              {/* Tab 4: Lengkap (All-in-One) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNasScriptTab('all');
+                  setCopiedModalScript(false);
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  activeNasScriptTab === 'all'
+                    ? 'border-emerald-500 text-emerald-300 bg-emerald-500/10 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Skrip Lengkap</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto">
+              {/* PARAMETER CONFIGURATION TOOLBAR */}
+              <div className="bg-[#0a0f1d] border border-slate-800 rounded-xl p-3.5 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/80">
+                  <span className="font-bold text-slate-200 flex items-center gap-1.5 text-[11px]">
+                    <Settings className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Parameter Skrip (Dapat Disesuaikan Real-Time):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNasRadiusIp('103.116.83.83');
+                      setNasRadiusSecret(selectedNasForScript.radiusSecret || 'Server@123');
+                      setNasSnmpIp('103.116.83.82/32');
+                      setNasSnmpCommunity('Masmedia');
+                      setNasRadiusServices('ppp,hotspot,dhcp');
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-indigo-300 underline cursor-pointer"
+                  >
+                    Reset Default
+                  </button>
                 </div>
-                <p className="text-slate-300 text-[11px] leading-relaxed">
-                  Salin skrip NAS di bawah ini lalu tempelkan (paste) ke <strong>Winbox &gt; New Terminal</strong> pada router ini. Skrip ini akan mendaftarkan RADIUS Server (<span className="font-mono text-emerald-400">{radiusServerHost}</span>) untuk autentikasi PPPoE & Hotspot, mengaktifkan Incoming CoA (Port 3799) untuk isolir/disconnect otomatis, serta mengaktifkan SNMP monitoring.
-                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {/* Target IP RADIUS */}
+                  <div className="space-y-1">
+                    <label className="text-slate-400 text-[10px] block font-semibold">IP Server RADIUS:</label>
+                    <input
+                      type="text"
+                      value={nasRadiusIp}
+                      onChange={e => setNasRadiusIp(e.target.value)}
+                      placeholder="103.116.83.83"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-indigo-200 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  {/* RADIUS Secret Key */}
+                  <div className="space-y-1">
+                    <label className="text-slate-400 text-[10px] block font-semibold">RADIUS Secret:</label>
+                    <input
+                      type="text"
+                      value={nasRadiusSecret}
+                      onChange={e => setNasRadiusSecret(e.target.value)}
+                      placeholder="Server@123"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  {/* SNMP Server IP */}
+                  <div className="space-y-1">
+                    <label className="text-slate-400 text-[10px] block font-semibold">IP SNMP Server Monitoring:</label>
+                    <input
+                      type="text"
+                      value={nasSnmpIp}
+                      onChange={e => setNasSnmpIp(e.target.value)}
+                      placeholder="103.116.83.82/32"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  {/* SNMP Community Name */}
+                  <div className="space-y-1">
+                    <label className="text-slate-400 text-[10px] block font-semibold">
+                      Nama Community SNMP:
+                      <span className="text-[9px] text-emerald-400 font-normal ml-1">(Aplikasi ini)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={nasSnmpCommunity}
+                      onChange={e => setNasSnmpCommunity(e.target.value)}
+                      placeholder="Masmedia"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-mono font-bold focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Sub-selector RouterOS Version when in Tab 'all' */}
+                {activeNasScriptTab === 'all' && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-800/80">
+                    <span className="text-slate-400 text-[11px]">Versi RouterOS:</span>
+                    <div className="inline-flex rounded-lg p-0.5 bg-slate-900 border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setNasAllVersion('v7')}
+                        className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer ${
+                          nasAllVersion === 'v7' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        RouterOS v7
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNasAllVersion('v6')}
+                        className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer ${
+                          nasAllVersion === 'v6' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        RouterOS v6
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Informational Callout */}
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs leading-relaxed space-y-1">
+                {activeNasScriptTab === 'v7' && (
+                  <>
+                    <div className="flex items-center gap-2 font-bold text-indigo-300">
+                      <Zap className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>Script Add New Radius Server MikroTik V7</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Pada <strong>MikroTik RouterOS v7</strong>, parameter <code className="bg-slate-950 px-1 py-0.5 rounded text-indigo-300 font-mono">require-message-auth=no</code> dan <code className="bg-slate-950 px-1 py-0.5 rounded text-indigo-300 font-mono">timeout=2s</code> wajib digunakan agar autentikasi RADIUS berjalan stabil tanpa paket ditolak. Service yang didaftarkan: <code className="bg-slate-950 px-1 py-0.5 rounded text-indigo-300 font-mono">{nasRadiusServices}</code>.
+                    </p>
+                  </>
+                )}
+
+                {activeNasScriptTab === 'v6' && (
+                  <>
+                    <div className="flex items-center gap-2 font-bold text-blue-300">
+                      <Server className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>Script Add New Radius Server MikroTik (RouterOS v6)</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Format standar kompatibel MikroTik RouterOS v6 dengan timeout milidetik (<code className="bg-slate-950 px-1 py-0.5 rounded text-blue-300 font-mono">timeout=2000ms</code>) serta mengaktifkan <code className="bg-slate-950 px-1 py-0.5 rounded text-blue-300 font-mono">/radius incoming set accept=yes</code> untuk menerima request CoA/Disconnect.
+                    </p>
+                  </>
+                )}
+
+                {activeNasScriptTab === 'snmp' && (
+                  <>
+                    <div className="flex items-center gap-2 font-bold text-amber-300">
+                      <Activity className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Script Enable SNMP MikroTik (Komunitas: {nasSnmpCommunity})</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Mengaktifkan SNMP MikroTik dengan nama community <strong className="text-emerald-300 font-mono">{nasSnmpCommunity}</strong> (menggunakan nama aplikasi ini menggantikan <em>RadbooX</em>), memberikan hak akses <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">write-access=yes read-access=yes</code> khusus untuk IP monitoring <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono">{nasSnmpIp}</code>.
+                    </p>
+                  </>
+                )}
+
+                {activeNasScriptTab === 'all' && (
+                  <>
+                    <div className="flex items-center gap-2 font-bold text-emerald-300">
+                      <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Skrip Lengkap (RADIUS Server + CoA 3799 + SNMP Masmedia + PPP AAA + Hotspot Profile)</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Semua konfigurasi digabung menjadi satu paket skrip siap pakai untuk router baru: pendaftaran server RADIUS, aktivasi CoA Port 3799, SNMP Masmedia, serta aktivasi RADIUS pada PPP AAA dan Hotspot Server Profile.
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Code Pre Block */}
               <div className="relative">
                 <div className="flex items-center justify-between px-4 py-2 bg-slate-950 border-t border-x border-slate-800 rounded-t-xl text-[11px] text-slate-400 font-mono">
-                  <span>Skrip NAS (FreeRADIUS AAA + CoA 3799 + SNMP MikroTik)</span>
-                  <span className="text-emerald-400">Siap Tempel di Terminal</span>
+                  <span>
+                    {activeNasScriptTab === 'v7' && 'Script Add New Radius Server MikroTik V7'}
+                    {activeNasScriptTab === 'v6' && 'Script Add New Radius Server MikroTik'}
+                    {activeNasScriptTab === 'snmp' && 'Script Enable SNMP MikroTik'}
+                    {activeNasScriptTab === 'all' && `Skrip Lengkap MikroTik (${nasAllVersion.toUpperCase()})`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyScript(getCurrentModalScript(selectedNasForScript))}
+                    className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 cursor-pointer font-sans"
+                  >
+                    {copiedModalScript ? (
+                      <span className="text-emerald-400 font-bold">Tersalin!</span>
+                    ) : (
+                      <span>Salin Skrip</span>
+                    )}
+                  </button>
                 </div>
-                <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-emerald-500 selection:text-white">
-                  {generateNasRadiusScript(selectedNasForScript)}
+                <pre className="p-4 rounded-b-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-72 leading-relaxed selection:bg-indigo-500 selection:text-white">
+                  {getCurrentModalScript(selectedNasForScript)}
                 </pre>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between flex-wrap gap-2">
+            <div className="p-4 border-t border-slate-800 bg-slate-900/95 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs text-slate-400">
                 Router: <span className="font-semibold text-white">{selectedNasForScript.name}</span> | IP: <span className="font-mono text-emerald-300">{selectedNasForScript.ipAddress}</span>
               </span>
@@ -960,23 +1300,32 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
                 </button>
                 <button
                   onClick={() => setSelectedNasForScript(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Tutup
                 </button>
                 <button
-                  onClick={() => handleCopyScript(generateNasRadiusScript(selectedNasForScript))}
+                  onClick={() => handleCopyScript(getCurrentModalScript(selectedNasForScript))}
                   className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs px-5 py-2 rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2 cursor-pointer"
                 >
                   {copiedModalScript ? (
                     <>
                       <Check className="w-4 h-4 text-white" />
-                      <span>Skrip NAS Berhasil Tersalin!</span>
+                      <span>Skrip Berhasil Tersalin!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      <span>Salin Skrip NAS (RADIUS)</span>
+                      <span>
+                        Salin Skrip{' '}
+                        {activeNasScriptTab === 'v7'
+                          ? 'ROS v7'
+                          : activeNasScriptTab === 'v6'
+                          ? 'ROS v6'
+                          : activeNasScriptTab === 'snmp'
+                          ? 'SNMP'
+                          : 'Lengkap'}
+                      </span>
                     </>
                   )}
                 </button>
