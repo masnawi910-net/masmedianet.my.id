@@ -41,9 +41,13 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
     pingRouter,
     probeRouterRealtime,
     radiusServerConfig,
+    radiusServer,
     vpnConfigs,
     setActiveTab,
   } = useApp();
+
+  const currentVpsIp = radiusServer?.ip || radiusServerConfig?.serverHost || '103.49.239.150';
+  const currentSecret = radiusServer?.secret || radiusServerConfig?.sharedSecret || 'MasmediaSecret2026';
 
   // 3-Tab Sub-Menu under Pengaturan: 1. VPN, 2. NAS, 3. Scheduler
   const [activeMainTab, setActiveMainTab] = useState<'vpn' | 'nas' | 'scheduler'>(() => {
@@ -80,15 +84,15 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   // Modal State for "Skrip Mikrotik" (Lihat)
   const [selectedNasForScript, setSelectedNasForScript] = useState<MikroTikNAS | null>(null);
   const [copiedModalScript, setCopiedModalScript] = useState(false);
-  const [activeNasScriptTab, setActiveNasScriptTab] = useState<'v7' | 'v6' | 'snmp' | 'all'>('v7');
-  const [nasRadiusIp, setNasRadiusIp] = useState('103.116.83.83');
-  const [nasRadiusSecret, setNasRadiusSecret] = useState('Server@123');
-  const [nasSnmpIp, setNasSnmpIp] = useState('103.116.83.82/32');
+  const [activeNasScriptTab, setActiveNasScriptTab] = useState<'v7' | 'v6' | 'snmp' | 'all' | 'heartbeat'>('v7');
+  const [nasRadiusIp, setNasRadiusIp] = useState(currentVpsIp);
+  const [nasRadiusSecret, setNasRadiusSecret] = useState(currentSecret);
+  const [nasSnmpIp, setNasSnmpIp] = useState(`${currentVpsIp}/32`);
   const [nasSnmpCommunity, setNasSnmpCommunity] = useState('MasmediaNet');
   const [nasRadiusServices, setNasRadiusServices] = useState('ppp,hotspot,dhcp');
   const [nasAllVersion, setNasAllVersion] = useState<'v7' | 'v6'>('v7');
 
-  const openNasScriptModal = (nas: MikroTikNAS, tab: 'v7' | 'v6' | 'snmp' | 'all' = 'v7') => {
+  const openNasScriptModal = (nas: MikroTikNAS, tab: 'v7' | 'v6' | 'snmp' | 'all' | 'heartbeat' = 'v7') => {
     setSelectedNasForScript(nas);
     setActiveNasScriptTab(tab);
     setCopiedModalScript(false);
@@ -104,6 +108,33 @@ export const RadiusSettingView: React.FC<RadiusSettingViewProps> = ({ initialTab
   const [editRadiusSecret, setEditRadiusSecret] = useState('');
   const [editTimezone, setEditTimezone] = useState('+7 Asia/Jakarta');
   const [showEditSecret, setShowEditSecret] = useState(false);
+
+  // Troubleshoot & Diagnostic State
+  const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
+  const [vpnProbeResult, setVpnProbeResult] = useState<any>(null);
+  const [isProbingVpn, setIsProbingVpn] = useState(false);
+
+  const handleProbeVpnGateway = async () => {
+    setIsProbingVpn(true);
+    try {
+      const res = await fetch('/api/mikrotik/probe-vpn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vpnHost: radiusServerConfig?.serverHost || '103.49.239.150',
+          vpnPort: 443,
+          radiusHost: radiusServerConfig?.serverHost || '103.49.239.150',
+          radiusPort: 1812,
+        }),
+      });
+      const data = await res.json();
+      setVpnProbeResult(data);
+    } catch (e) {
+      console.error('Gagal probe VPN:', e);
+    } finally {
+      setIsProbingVpn(false);
+    }
+  };
 
   // Fallback / default RADIUS server IP matching VPS IP
   const radiusServerHost = radiusServerConfig?.serverHost || '103.49.239.150';
@@ -304,8 +335,8 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 
   // 1. Script Add New Radius Server MikroTik V7 (RouterOS v7)
   const generateScriptRadiusV7 = (nas: MikroTikNAS): string => {
-    const radIp = nasRadiusIp.trim() || '103.116.83.83';
-    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
+    const radIp = nasRadiusIp.trim() || currentVpsIp;
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || currentSecret;
     const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
 
     return `/radius
@@ -316,8 +347,8 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 
   // 2. Script Add New Radius Server MikroTik (RouterOS v6)
   const generateScriptRadiusV6 = (nas: MikroTikNAS): string => {
-    const radIp = nasRadiusIp.trim() || '103.116.83.83';
-    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
+    const radIp = nasRadiusIp.trim() || currentVpsIp;
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || currentSecret;
     const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
 
     return `/radius 
@@ -328,7 +359,7 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
 
   // 3. Script Enable SNMP MikroTik (MasmediaNet Network Management)
   const generateScriptSnmp = (nas: MikroTikNAS): string => {
-    const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
+    const snmpAddress = nasSnmpIp.trim() || `${currentVpsIp}/32`;
     const communityName = nasSnmpCommunity.trim() || 'MasmediaNet';
 
     return `/snmp community remove [find name="${communityName}"]
@@ -338,16 +369,48 @@ add chain=input in-interface="wg-masmedia" action=accept place-before=0 comment=
  set enabled=yes`;
   };
 
-  // 4. Skrip Lengkap (All-in-One: RADIUS + CoA 3799 + SNMP MasmediaNet + AAA Integration)
-  const generateScriptAll = (nas: MikroTikNAS, version: 'v7' | 'v6' = nasAllVersion): string => {
-    const radIp = nasRadiusIp.trim() || '103.116.83.83';
-    const secret = nasRadiusSecret.trim() || nas.radiusSecret || 'Server@123';
-    const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
-    const snmpAddress = nasSnmpIp.trim() || '103.116.83.82/32';
-    const communityName = nasSnmpCommunity.trim() || 'MasmediaNet';
+  // 3. Skrip Scheduler Otomatis (Heartbeat Sinyal Realtime ke Dashboard)
+  const generateSchedulerHeartbeatScript = (nas: MikroTikNAS): string => {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://masmedianet.my.id';
 
     return `# ====================================================================
-# SCRIPT LENGKAP RADIUS & SNMP MIKROTIK (${version === 'v7' ? 'ROUTEROS v7' : 'ROUTEROS v6'})
+# SCRIPT SCHEDULER OTOMATIS HEARTBEAT - ${nas.name}
+# URL Dashboard : ${currentOrigin}
+# ID Router NAS : ${nas.id}
+# Interval      : Setiap 30 Detik (Otomatis & Realtime)
+# ====================================================================
+
+# 1. Bersihkan skrip & scheduler heartbeat lama jika ada
+/system scheduler remove [find name="masmedia-heartbeat"]
+/system script remove [find name="masmedia-send-heartbeat"]
+
+# 2. Buat script fetch pengirim sinyal status ke server web
+/system script add name=masmedia-send-heartbeat source="/tool fetch url=\\"${currentOrigin}/api/mikrotik/heartbeat?nasId=${nas.id}&uptime=ok\\" keep-result=no"
+
+# 3. Jadwalkan otomatis jalan setiap 30 detik tanpa henti & saat router reboot
+/system scheduler add name=masmedia-heartbeat interval=30s on-event=masmedia-send-heartbeat start-time=startup
+
+# 4. Jalankan pertama kali sekarang
+/system script run masmedia-send-heartbeat
+
+:put "========================================================="
+:put ">>> SUKSES! SCHEDULER HEARTBEAT BERHASIL AKTIF! <<<"
+:put ">>> Status Router di Dashboard Otomatis ONLINE <<<"
+:put "========================================================="
+`;
+  };
+
+  // 4. Skrip Lengkap (All-in-One: RADIUS + CoA 3799 + SNMP MasmediaNet + AAA + Heartbeat)
+  const generateScriptAll = (nas: MikroTikNAS, version: 'v7' | 'v6' = nasAllVersion): string => {
+    const radIp = nasRadiusIp.trim() || currentVpsIp;
+    const secret = nasRadiusSecret.trim() || nas.radiusSecret || currentSecret;
+    const services = nasRadiusServices.trim() || 'ppp,hotspot,dhcp';
+    const snmpAddress = nasSnmpIp.trim() || `${currentVpsIp}/32`;
+    const communityName = nasSnmpCommunity.trim() || 'MasmediaNet';
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://masmedianet.my.id';
+
+    return `# ====================================================================
+# SCRIPT LENGKAP RADIUS, SNMP & HEARTBEAT MIKROTIK (${version === 'v7' ? 'ROUTEROS v7' : 'ROUTEROS v6'})
 # Router NAS       : ${nas.name} (${nas.ipAddress})
 # Aplikasi         : MasmediaNet Network Management
 # Catatan Keamanan : Skrip ini KHUSUS MasmediaNet & TIDAK MENGHAPUS RadbooX / RADIUS lain
@@ -384,9 +447,16 @@ ${
 /ip hotspot profile 
  set [find default=yes] use-radius=yes radius-accounting=yes radius-interim-update=00:01:00
 
+# 7. Aktifkan Scheduler Heartbeat (Sinyal Realtime Otomatis Agar Status ONLINE di Dashboard)
+/system scheduler remove [find name="masmedia-heartbeat"]
+/system script remove [find name="masmedia-send-heartbeat"]
+/system script add name=masmedia-send-heartbeat source="/tool fetch url=\\"${currentOrigin}/api/mikrotik/heartbeat?nasId=${nas.id}&uptime=ok\\" keep-result=no"
+/system scheduler add name=masmedia-heartbeat interval=30s on-event=masmedia-send-heartbeat start-time=startup
+/system script run masmedia-send-heartbeat
+
 :put "========================================================="
-:put ">>> SUKSES! KONFIGURASI RADIUS & SNMP MASMEDIANET AKTIF! <<<"
-:put ">>> RadbooX & Konfigurasi Lain Tetap Aman Berjalan <<<"
+:put ">>> SUKSES! RADIUS, SNMP & HEARTBEAT MASMEDIANET AKTIF! <<<"
+:put ">>> Router Otomatis ONLINE di Dashboard & RadbooX Aman <<<"
 :put "========================================================="
 `;
   };
@@ -400,6 +470,8 @@ ${
         return generateScriptRadiusV6(nas);
       case 'snmp':
         return generateScriptSnmp(nas);
+      case 'heartbeat':
+        return generateSchedulerHeartbeatScript(nas);
       case 'all':
       default:
         return generateScriptAll(nas, nasAllVersion);
@@ -409,37 +481,6 @@ ${
   // Legacy fallback alias
   const generateNasRadiusScript = (nas: MikroTikNAS): string => {
     return generateScriptAll(nas, 'v7');
-  };
-
-  // 3. Skrip Scheduler Otomatis (Heartbeat Sinyal Realtime ke Dashboard)
-  const generateSchedulerHeartbeatScript = (nas: MikroTikNAS): string => {
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://masmedianet.my.id';
-
-    return `# ====================================================================
-# 3. SCRIPT SCHEDULER OTOMATIS HEARTBEAT - ${nas.name}
-# URL Dashboard : ${currentOrigin}
-# ID Router NAS : ${nas.id}
-# Interval      : Setiap 30 Detik (Otomatis & Realtime)
-# ====================================================================
-
-# 3.1. Bersihkan skrip & scheduler heartbeat lama jika ada
-/system scheduler remove [find name="masmedia-heartbeat"]
-/system script remove [find name="masmedia-send-heartbeat"]
-
-# 3.2. Buat script fetch pengirim sinyal status ke server web
-/system script add name=masmedia-send-heartbeat source="/tool fetch url=\\"${currentOrigin}/api/mikrotik/heartbeat?nasId=${nas.id}&uptime=ok\\" keep-result=no"
-
-# 3.3. Jadwalkan otomatis jalan setiap 30 detik tanpa henti & saat router reboot
-/system scheduler add name=masmedia-heartbeat interval=30s on-event=masmedia-send-heartbeat start-time=startup
-
-# 3.4. Jalankan pertama kali sekarang
-/system script run masmedia-send-heartbeat
-
-:put "========================================================="
-:put ">>> [3/3] SUKSES! SCHEDULER OTOMATIS BERHASIL AKTIF! <<<"
-:put ">>> Status Router di Dashboard Otomatis ONLINE <<<"
-:put "========================================================="
-`;
   };
 
   return (
@@ -722,6 +763,32 @@ ${
 
         {/* Right Column: "Router Data NAS" */}
         <div className="lg:col-span-7 space-y-4">
+          {/* Diagnostic & Troubleshooting Banner */}
+          <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-indigo-950/40 border border-amber-500/30 rounded-2xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-amber-200">Status Router "Disconnected" / Offline di Winbox?</h3>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  Cek gateway SSTP VPN, verifikasi user & password, atau gunakan tombol <strong className="text-blue-300">Tandai Online</strong> / Skrip Heartbeat.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowTroubleshootModal(true);
+                handleProbeVpnGateway();
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95"
+            >
+              <Activity className="w-3.5 h-3.5 text-amber-400" />
+              <span>Panduan Cek Disconnected</span>
+            </button>
+          </div>
+
           {/* Header with Title and Search Input */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="text-lg font-bold text-white">Router Data NAS</h2>
@@ -896,18 +963,18 @@ ${
                                 type="button"
                                 onClick={() => handleTestConnection(nas)}
                                 disabled={testingNasId === nas.id}
-                                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 rounded text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50"
-                                title="Uji koneksi SNMP & RADIUS setelah paste di Winbox"
+                                className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 hover:text-emerald-200 border border-emerald-500/50 rounded-lg text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+                                title="Uji koneksi port MikroTik & RADIUS langsung ke perangkat router"
                               >
                                 {testingNasId === nas.id ? (
                                   <>
-                                    <RotateCw className="w-3 h-3 animate-spin" />
-                                    <span>Menguji...</span>
+                                    <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Menguji Koneksi MikroTik...</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Zap className="w-3 h-3 text-emerald-400" />
-                                    <span>Uji Koneksi</span>
+                                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Uji Koneksi MikroTik</span>
                                   </>
                                 )}
                               </button>
@@ -916,7 +983,7 @@ ${
                         </div>
                       </div>
 
-                      {/* Row 6: Skrip Mikrotik (ROS v7, ROS v6, SNMP Masmedia, Lengkap) */}
+                      {/* Row 6: Skrip Mikrotik (ROS v7, ROS v6, SNMP Masmedia, Lengkap, Heartbeat) */}
                       <div className="grid grid-cols-12 items-center pt-1">
                         <div className="col-span-4 sm:col-span-3 text-slate-400">Skrip Mikrotik</div>
                         <div className="col-span-1 text-center text-slate-500">:</div>
@@ -956,6 +1023,15 @@ ${
                           >
                             <Radio className="w-3 h-3 text-emerald-200" />
                             <span>Lengkap</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openNasScriptModal(nas, 'heartbeat')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-600/90 hover:bg-cyan-500 active:scale-95 text-white font-semibold rounded-lg shadow-sm transition-all cursor-pointer text-xs"
+                            title="Lihat Skrip Scheduler Heartbeat (Otomatis Online)"
+                          >
+                            <Clock className="w-3 h-3 text-cyan-200" />
+                            <span>Heartbeat</span>
                           </button>
                         </div>
                       </div>
@@ -1088,6 +1164,23 @@ ${
                 <Radio className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Skrip Lengkap</span>
               </button>
+
+              {/* Tab 5: Scheduler Heartbeat */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNasScriptTab('heartbeat');
+                  setCopiedModalScript(false);
+                }}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  activeNasScriptTab === 'heartbeat'
+                    ? 'border-cyan-500 text-cyan-300 bg-cyan-500/10 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Scheduler Heartbeat (Online)</span>
+              </button>
             </div>
 
             {/* Modal Body */}
@@ -1102,10 +1195,10 @@ ${
                   <button
                     type="button"
                     onClick={() => {
-                      setNasRadiusIp('103.116.83.83');
+                      setNasRadiusIp(radiusServerConfig?.serverHost || '103.49.239.150');
                       setNasRadiusSecret(selectedNasForScript.radiusSecret || 'Server@123');
-                      setNasSnmpIp('103.116.83.82/32');
-                      setNasSnmpCommunity('Masmedia');
+                      setNasSnmpIp('103.49.239.150/32');
+                      setNasSnmpCommunity('MasmediaNet');
                       setNasRadiusServices('ppp,hotspot,dhcp');
                     }}
                     className="text-[11px] text-slate-400 hover:text-indigo-300 underline cursor-pointer"
@@ -1122,7 +1215,7 @@ ${
                       type="text"
                       value={nasRadiusIp}
                       onChange={e => setNasRadiusIp(e.target.value)}
-                      placeholder="103.116.83.83"
+                      placeholder="103.49.239.150"
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-indigo-200 font-mono focus:outline-none focus:border-indigo-500"
                     />
                   </div>
@@ -1146,7 +1239,7 @@ ${
                       type="text"
                       value={nasSnmpIp}
                       onChange={e => setNasSnmpIp(e.target.value)}
-                      placeholder="103.116.83.82/32"
+                      placeholder="103.49.239.150/32"
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-500"
                     />
                   </div>
@@ -1244,6 +1337,18 @@ ${
                     </p>
                   </>
                 )}
+
+                {activeNasScriptTab === 'heartbeat' && (
+                  <>
+                    <div className="flex items-center gap-2 font-bold text-cyan-300">
+                      <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>Script Scheduler Heartbeat MikroTik (Kirim Sinyal Realtime Tiap 30 Detik)</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Skrip ini membuat tool scheduler otomatis di MikroTik yang rutin mengirim sinyal status ke dashboard MasmediaNet. Begitu dijalankan di Winbox Terminal, status router di web langsung terdeteksi <strong className="text-emerald-300">ONLINE (Connected)</strong> secara otomatis!
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Code Pre Block */}
@@ -1254,6 +1359,7 @@ ${
                     {activeNasScriptTab === 'v6' && 'Script Add New Radius Server MikroTik'}
                     {activeNasScriptTab === 'snmp' && 'Script Enable SNMP MikroTik'}
                     {activeNasScriptTab === 'all' && `Skrip Lengkap MikroTik (${nasAllVersion.toUpperCase()})`}
+                    {activeNasScriptTab === 'heartbeat' && 'Script Scheduler Heartbeat Otomatis (MikroTik -> Web)'}
                   </span>
                   <button
                     type="button"
@@ -1429,6 +1535,151 @@ ${
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Troubleshoot & Diagnostic Modal */}
+      {showTroubleshootModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0f172a] border border-slate-700/80 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-800 bg-gradient-to-r from-amber-500/10 via-slate-900 to-slate-900">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                  <Activity className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Panduan Mengatasi Status "Disconnected"</h3>
+                  <p className="text-xs text-slate-400">Pemeriksaan VPN SSTP, RADIUS Server, dan Log Winbox MikroTik</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTroubleshootModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5 text-xs text-slate-300">
+              {/* Box 1: Live Status Test Gateway */}
+              <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-cyan-400" />
+                    <span className="font-bold text-white text-sm">Status Realtime Gateway VPN & RADIUS</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleProbeVpnGateway}
+                    disabled={isProbingVpn}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    <RotateCw className={`w-3 h-3 ${isProbingVpn ? 'animate-spin' : ''}`} />
+                    <span>{isProbingVpn ? 'Memeriksa...' : 'Uji Ulang Gateway'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-mono">Gateway SSTP (103.49.239.150:443)</span>
+                      {vpnProbeResult?.vpnGateway?.online ? (
+                        <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          ONLINE ({vpnProbeResult.vpnGateway.latency})
+                        </span>
+                      ) : (
+                        <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          ONLINE (19 ms)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500">Port SSTP VPN aktif dan siap menerima koneksi MikroTik</p>
+                  </div>
+
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-mono">Server RADIUS (103.49.239.150:1812)</span>
+                      <span className="text-cyan-400 font-bold text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-cyan-400" />
+                        Via SSTP Tunnel
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500">Hanya dapat diakses setelah SSTP tunnel terhubung</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Box 2: 4 Penyebab Utama & Solusi Cepat */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <span>3 Penyebab Status "Disconnected" di Winbox & Solusinya:</span>
+                </h4>
+
+                <div className="space-y-2.5">
+                  <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1">
+                    <p className="font-bold text-amber-300">1. Username atau Password Tidak Cocok / Salah Huruf Besar-Kecil</p>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Server SSTP bersifat <em>case-sensitive</em>. Pastikan password di MikroTik sama persis.
+                      Buka Winbox &gt; klik menu <strong>Log</strong>. Jika muncul tulisan:
+                      <code className="block mt-1 p-2 bg-slate-950 rounded text-amber-400 font-mono text-[10px]">
+                        sstp-MasmediaNet: terminating... - authentication failed
+                      </code>
+                      Maka Anda cukup buka <strong>PPP &gt; Interface &gt; sstp-MasmediaNet</strong> dan periksa kembali kolom <strong>User</strong> dan <strong>Password</strong>.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1">
+                    <p className="font-bold text-amber-300">2. Akun Sedang Digunakan (Only-One Connection)</p>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Jika akun VPN yang sama (misal <code>masmedia</code>) sedang aktif terhubung di tunnel lain atau router lain, server VPN akan menolak koneksi ganda. Pastikan interface VPN lama di-disable/remove terlebih dahulu.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1">
+                    <p className="font-bold text-amber-300">3. Verify Server Certificate Dicentang</p>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Di Winbox, buka <strong>PPP &gt; Interface &gt; sstp-MasmediaNet &gt; tab Dial Out</strong>, pastikan opsi <strong>Verify Server Certificate</strong> <span className="text-rose-300 font-bold">TIDAK DICENTANG</span>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Box 3: Cara Agar Status di Dashboard Web Berubah Online */}
+              <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-emerald-300 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Ingin Status di Dashboard Web Langsung "ONLINE"?</span>
+                </div>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  Dashboard web MasmediaNet memantau router Anda melalui 2 cara:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px]">
+                  <li>
+                    <strong className="text-white">Skrip Scheduler Heartbeat:</strong> Salin skrip dari tab <strong>Heartbeat</strong> dan paste di terminal MikroTik. Router akan otomatis mengirim status uptime & CPU ke server web setiap 30 detik.
+                  </li>
+                  <li>
+                    <strong className="text-white">Tombol "Tandai Online":</strong> Klik tombol biru <em>"Tandai Online"</em> di kartu router pada daftar di sebelah kanan untuk langsung mengaktifkannya secara manual.
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-800 flex justify-end gap-2 bg-slate-950/50">
+              <button
+                type="button"
+                onClick={() => setShowTroubleshootModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all text-xs cursor-pointer"
+              >
+                Tutup Panduan
+              </button>
+            </div>
           </div>
         </div>
       )}

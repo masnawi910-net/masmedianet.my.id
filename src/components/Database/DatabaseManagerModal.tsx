@@ -177,7 +177,7 @@ export const DatabaseManagerModal: React.FC<DatabaseManagerModalProps> = ({
     setResetConfirmationText('');
     setImportStatus({
       type: 'success',
-      message: 'Database berhasil di-reset ke pengaturan standar demo.',
+      message: 'Database berhasil di-reset ke kondisi bersih (bersih dari data dummy/contoh).',
     });
   };
 

@@ -517,7 +517,7 @@ export const GuideView: React.FC = () => {
                   <button
                     onClick={() =>
                       copyToClipboard(
-                        '# ====================================================================\n# SKRIP SSTP CLIENT MIKROTIK (BYPASS BLOKIR ISP / PORT 443)\n# ====================================================================\n/interface sstp-client remove [find name~"vpn-sstp-billing|vpn-remote|vpn-masmedia"]\n\n/interface sstp-client\nadd name="vpn-sstp-billing" connect-to="103.49.239.150" user="klien_posko" \\\n    password="vpnpass123" profile=default-encryption verify-server-certificate=no \\\n    add-default-route=no disabled=no comment="VPN SSTP Remote Masmedia"\n\n/ip service enable winbox\n/ip service set winbox port=8291\n/ip service enable api\n/ip service set api port=8728\n/ip service enable www\n/ip service set www port=80\n\n/ip firewall filter\nadd chain=input in-interface="vpn-sstp-billing" action=accept place-before=0 comment="Allow Remote via SSTP Masmedia"\n\n:put ">>> VPN SSTP BERHASIL DIHUBUNGKAN! <<<"',
+                        '# ====================================================================\n# SKRIP SSTP CLIENT MIKROTIK (PORT 443 / VPS MASMEDIANET)\n# ====================================================================\n/interface sstp-client remove [find name~"vpn-sstp-billing|vpn-remote|vpn-masmedia|sstp-MasmediaNet"]\n\n/interface sstp-client\nadd name="sstp-MasmediaNet" connect-to="103.49.239.150" port=443 user="masmedia" \\\n    password="Server@123" profile=default-encryption verify-server-certificate=no \\\n    verify-server-address-from-certificate=no add-default-route=no disabled=no comment="VPN SSTP Remote MasmediaNet"\n\n/ip service enable winbox\n/ip service set winbox port=8291\n/ip service enable api\n/ip service set api port=8728\n/ip service enable www\n/ip service set www port=80\n\n/ip firewall filter\nadd chain=input in-interface="sstp-MasmediaNet" action=accept place-before=0 comment="Allow Remote via SSTP MasmediaNet"\n\n:put ">>> VPN SSTP BERHASIL DIHUBUNGKAN! <<<"',
                         'guide-sstp-script'
                       )
                     }
@@ -531,7 +531,7 @@ export const GuideView: React.FC = () => {
                 <div className="p-3.5 bg-slate-950 rounded-xl font-mono text-xs text-slate-200 border border-slate-800 overflow-x-auto space-y-1">
                   <p className="text-slate-500"># 1. Tambahkan Interface SSTP Client</p>
                   <p className="text-emerald-300">/interface sstp-client</p>
-                  <p className="text-white">add name="vpn-sstp-billing" connect-to="103.49.239.150" user="klien_posko" password="vpnpass123" profile=default-encryption verify-server-certificate=no add-default-route=no disabled=no</p>
+                  <p className="text-white">add name="sstp-MasmediaNet" connect-to="103.49.239.150" port=443 user="masmedia" password="Server@123" profile=default-encryption verify-server-certificate=no verify-server-address-from-certificate=no add-default-route=no disabled=no</p>
                   <p className="text-slate-500 mt-2"># 2. Buka Akses Remote &amp; Service API</p>
                   <p className="text-emerald-300">/ip service enable winbox,api,www</p>
                   <p className="text-white">/ip firewall filter add chain=input in-interface="vpn-sstp-billing" action=accept place-before=0</p>

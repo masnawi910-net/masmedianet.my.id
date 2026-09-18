@@ -36,7 +36,7 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const { vpnConfigs, addVPN, deleteVPN, setActiveTab, radiusServer } = useApp();
 
   // VPS Server Public Host IP (Default user VPS IP)
-  const defaultServerHost = '103.49.239.150';
+  const defaultServerHost = radiusServer?.ip || '103.49.239.150';
   const [serverHost] = useState(defaultServerHost);
 
   // Form State - ONLY Account Name, Username, and Password as requested
@@ -65,14 +65,14 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
   const [quickCopiedId, setQuickCopiedId] = useState<string | null>(null);
 
   // Parameter Khusus untuk Skrip Autentikasi RADIUS MasmediaNet (Dapat Berjalan Bersama RadbooX / Sistem Lain)
-  const [radiusTargetIp, setRadiusTargetIp] = useState('103.116.83.83');
-  const [radiusConnectTo, setRadiusConnectTo] = useState('103.116.83.85');
-  const [radiusSstpPort, setRadiusSstpPort] = useState<number>(4433);
-  const [radiusSecret, setRadiusSecret] = useState('server@123');
+  const [radiusTargetIp, setRadiusTargetIp] = useState(radiusServer?.ip || '103.49.239.150');
+  const [radiusConnectTo, setRadiusConnectTo] = useState(radiusServer?.hostname || radiusServer?.ip || '103.49.239.150');
+  const [radiusSstpPort, setRadiusSstpPort] = useState<number>(radiusServer?.sstpPort || 443);
+  const [radiusSecret, setRadiusSecret] = useState(radiusServer?.secret || 'MasmediaSecret2026');
   const [includeRadiusServiceRule, setIncludeRadiusServiceRule] = useState(true);
   const [radiusRouterOsVersion, setRadiusRouterOsVersion] = useState<'v7' | 'v6'>('v7');
-  const [includeSnmpRule, setIncludeSnmpRule] = useState(true);
-  const [snmpServerIp, setSnmpServerIp] = useState('103.116.83.82/32');
+  const [includeSnmpRule, setIncludeSnmpRule] = useState(false);
+  const [snmpServerIp, setSnmpServerIp] = useState(`${radiusServer?.ip || '103.49.239.150'}/32`);
   const [snmpCommunityName, setSnmpCommunityName] = useState('MasmediaNet');
 
   // Calculate Next Dynamic Allocation (IP and Ports)
@@ -206,13 +206,13 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
 
   // --- KELOMPOK 1: SCRIPT AUTENTIKASI RADIUS MASMEDIANET (TUNNEL & ROUTING KHUSUS RADIUS) ---
 
-  // 1.1 RADIUS SSTP Client (Port 4433 / 443 - Format MasmediaNet, Bebas Konflik dengan RadbooX)
+  // 1.1 RADIUS SSTP Client (Port 443 / SSTP MasmediaNet)
   const generateRadiusSstpScript = (vpn: VPNConfig): string => {
-    const connectHost = radiusConnectTo.trim() || vpn.serverAddress || '103.116.83.85';
-    const radIp = radiusTargetIp.trim() || '103.116.83.83';
-    const user = vpn.username || 'masmedia';
-    const pass = vpn.password || vpn.secretKey || 'server@123';
-    const sstpPort = radiusSstpPort || 4433;
+    const connectHost = radiusConnectTo.trim() || defaultServerHost;
+    const radIp = radiusTargetIp.trim() || defaultServerHost;
+    const user = vpn.username && vpn.username !== 'user' ? vpn.username : 'masmedia';
+    const pass = vpn.password || vpn.secretKey || 'Server@123';
+    const sstpPort = radiusSstpPort || 443;
     const radSecret = radiusSecret.trim() || pass;
     const iface = 'sstp-MasmediaNet';
 
@@ -235,7 +235,7 @@ export const VPNSettingView: React.FC<VPNSettingViewProps> = ({ embedded = false
 /interface sstp-client
 add connect-to=${connectHost} disabled=no name=${iface} port=${sstpPort} \\
     user="${user}" password="${pass}" profile=default-encryption \\
-    verify-server-certificate=no add-default-route=no comment="Tunnel RADIUS Server - MasmediaNet (${vpn.name})"
+    verify-server-certificate=no verify-server-address-from-certificate=no add-default-route=no comment="Tunnel RADIUS Server - MasmediaNet (${vpn.name})"
 
 # 3. Tambahkan Routing Khusus ke IP Server RADIUS MasmediaNet
 /ip route
@@ -258,7 +258,7 @@ ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
 # 5. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
 /snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || `${defaultServerHost}/32`} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
@@ -272,7 +272,7 @@ ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
   // 1.2 RADIUS WireGuard Client (RouterOS v7 - MasmediaNet)
   const generateRadiusWireGuardScript = (vpn: VPNConfig): string => {
     const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
-    const radIp = radiusTargetIp.trim() || '103.116.83.83';
+    const radIp = radiusTargetIp.trim() || defaultServerHost;
     const tunnelIp = vpn.remoteIp || '10.200.0.10';
     const radSecret = radiusSecret.trim() || vpn.password || 'server@123';
     const iface = 'wg-MasmediaNet';
@@ -328,7 +328,7 @@ ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
 # 7. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
 /snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || `${defaultServerHost}/32`} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
@@ -341,7 +341,7 @@ ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
   // 1.3 RADIUS L2TP/IPsec Client (RouterOS v6 & v7 - MasmediaNet)
   const generateRadiusL2tpScript = (vpn: VPNConfig): string => {
     const connectHost = radiusConnectTo.trim() || vpn.serverAddress || defaultServerHost;
-    const radIp = radiusTargetIp.trim() || '103.116.83.83';
+    const radIp = radiusTargetIp.trim() || defaultServerHost;
     const user = vpn.username || 'masmedia';
     const pass = vpn.password || vpn.secretKey || 'server@123';
     const radSecret = radiusSecret.trim() || pass;
@@ -390,7 +390,7 @@ ${includeRadiusServiceRule ? (radiusRouterOsVersion === 'v7' ? `
 # 5. Aktifkan SNMP MikroTik MasmediaNet (Community: ${snmpCommunityName.trim() || 'MasmediaNet'})
 /snmp community remove [find name="${snmpCommunityName.trim() || 'MasmediaNet'}"]
 /snmp community 
- add addresses=${snmpServerIp.trim() || '103.116.83.82/32'} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
+ add addresses=${snmpServerIp.trim() || `${defaultServerHost}/32`} name=${snmpCommunityName.trim() || 'MasmediaNet'} write-access=yes read-access=yes
 /snmp 
  set enabled=yes
 ` : ''}
@@ -455,9 +455,9 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
 
   // 2.2 Remote Winbox SSTP (SSL Port 443 - Anti Blokir)
   const generateSstpScript = (vpn: VPNConfig): string => {
-    const host = vpn.serverAddress || defaultServerHost;
-    const user = vpn.username || 'masmedia';
-    const pass = vpn.password || vpn.secretKey || 'server@123';
+    const host = radiusConnectTo.trim() || defaultServerHost;
+    const user = vpn.username && vpn.username !== 'user' ? vpn.username : 'masmedia';
+    const pass = vpn.password || vpn.secretKey || 'Server@123';
     const winboxPort = vpn.remoteWinboxPort || 18291;
     const iface = 'sstp-masmedia';
 
@@ -477,7 +477,7 @@ add chain=input in-interface="${iface}" action=accept place-before=0 comment="Al
 /interface sstp-client
 add name="${iface}" connect-to="${host}" port=443 user="${user}" \\
     password="${pass}" profile=default-encryption verify-server-certificate=no \\
-    add-default-route=no disabled=no comment="VPN SSTP Remote MasmediaNet - ${vpn.name}"
+    verify-server-address-from-certificate=no add-default-route=no disabled=no comment="VPN SSTP Remote MasmediaNet - ${vpn.name}"
 
 # 3. Aktifkan Service Winbox, API & Web
 /ip service enable winbox
@@ -1168,10 +1168,10 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                     <button
                       type="button"
                       onClick={() => {
-                        setRadiusTargetIp('103.116.83.83');
-                        setRadiusConnectTo('103.116.83.85');
-                        setRadiusSstpPort(4433);
-                        setRadiusSecret('server@123');
+                        setRadiusTargetIp(defaultServerHost);
+                        setRadiusConnectTo(defaultServerHost);
+                        setRadiusSstpPort(443);
+                        setRadiusSecret('Server@123');
                         setIncludeRadiusServiceRule(true);
                       }}
                       className="text-[11px] text-slate-400 hover:text-indigo-300 underline cursor-pointer"
@@ -1188,7 +1188,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                         type="text"
                         value={radiusTargetIp}
                         onChange={e => setRadiusTargetIp(e.target.value)}
-                        placeholder="103.116.83.83"
+                        placeholder="103.49.239.150"
                         className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-indigo-200 font-mono focus:outline-none focus:border-indigo-500"
                       />
                     </div>
@@ -1200,7 +1200,7 @@ Akun Remote Jarak Jauh Router MikroTik Anda telah aktif dan siap digunakan:
                         type="text"
                         value={radiusConnectTo}
                         onChange={e => setRadiusConnectTo(e.target.value)}
-                        placeholder="103.116.83.85"
+                        placeholder="103.49.239.150"
                         className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                       />
                     </div>

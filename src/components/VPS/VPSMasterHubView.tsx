@@ -436,8 +436,8 @@ echo ">>> SELESAI! Seluruh ${vpnConfigs.length} Klien VPN Kini Aktif & Ter-forwa
             onClick={() => {
               openSaasMasterPdfGuide({
                 vpsIp: radiusServer?.ip || '103.49.239.150',
-                hostname: radiusServer?.hostname || 'vps-master.masmedianet.id',
-                secret: radiusServer?.secret || 'masmedia123',
+                hostname: radiusServer?.hostname || 'masmedianet.my.id',
+                secret: radiusServer?.secret || 'MasmediaSecret2026',
                 authPort: radiusServer?.authPort || 1812,
                 acctPort: radiusServer?.acctPort || 1813,
                 wireguardPort: radiusServer?.wireguardPort || 51820,
@@ -1700,7 +1700,7 @@ echo ">>> SUKSES! Seluruh Port Remote Winbox 18291 s/d 18350 kini otomatis aktif
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 space-y-1">
                 <div className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Perintah MikroTik Otomatis:</div>
                 <div className="text-emerald-400 select-all overflow-x-auto whitespace-pre">
-                  /radius add address={vpsFormData.ip.trim() || '103.49.239.150'} secret="{vpsFormData.secret.trim() || 'masmedia123'}" service=ppp,hotspot authentication-port={vpsFormData.authPort} accounting-port={vpsFormData.acctPort}
+                  /radius add address={vpsFormData.ip.trim() || '103.49.239.150'} secret="{vpsFormData.secret.trim() || 'MasmediaSecret2026'}" service=ppp,hotspot authentication-port={vpsFormData.authPort} accounting-port={vpsFormData.acctPort}
                 </div>
               </div>
 

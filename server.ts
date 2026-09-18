@@ -386,9 +386,17 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "Host / IP Address diperlukan" });
       }
 
-      // Check recent heartbeat
+      // Check recent heartbeat (by specific nasId or any active heartbeat from router)
       const heartbeat = nasId ? routerHeartbeats.get(nasId) : null;
-      const isRecentHeartbeat = heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000);
+      let isRecentHeartbeat = Boolean(heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000));
+      if (!isRecentHeartbeat && routerHeartbeats.size > 0) {
+        for (const hb of routerHeartbeats.values()) {
+          if (Date.now() - hb.lastHeartbeat < 90000) {
+            isRecentHeartbeat = true;
+            break;
+          }
+        }
+      }
 
       // Perform real network socket probe
       const probeResult = await probeHostPort(host, Number(port), Number(timeout));
@@ -423,7 +431,15 @@ async function startServer() {
       const results = await Promise.all(
         routers.map(async (r) => {
           const heartbeat = routerHeartbeats.get(r.id);
-          const isRecentHeartbeat = heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000);
+          let isRecentHeartbeat = Boolean(heartbeat && (Date.now() - heartbeat.lastHeartbeat < 90000));
+          if (!isRecentHeartbeat && routerHeartbeats.size > 0) {
+            for (const hb of routerHeartbeats.values()) {
+              if (Date.now() - hb.lastHeartbeat < 90000) {
+                isRecentHeartbeat = true;
+                break;
+              }
+            }
+          }
           const probe = await probeHostPort(r.host, Number(r.port || 8728), 2000);
           const isOnline = probe.online || !!isRecentHeartbeat;
           return {
@@ -443,26 +459,58 @@ async function startServer() {
 
   // MikroTik Heartbeat receiver (RouterOS Scheduler / fetch tool)
   app.all("/api/mikrotik/heartbeat", (req, res) => {
-    const nasId = (req.query.nasId || req.body?.nasId || '').toString();
+    const rawNasId = (req.query.nasId || req.body?.nasId || '').toString().trim();
+    const effectiveNasId = rawNasId || 'default-router';
     const cpuLoad = Number(req.query.cpu || req.body?.cpu || 0);
     const uptime = (req.query.uptime || req.body?.uptime || '').toString();
 
-    if (nasId) {
-      routerHeartbeats.set(nasId, {
-        nasId,
-        ipAddress: req.ip,
-        cpuLoad: isNaN(cpuLoad) ? undefined : cpuLoad,
-        uptime: uptime || undefined,
-        lastHeartbeat: Date.now(),
-      });
-    }
+    routerHeartbeats.set(effectiveNasId, {
+      nasId: effectiveNasId,
+      ipAddress: req.ip,
+      cpuLoad: isNaN(cpuLoad) ? undefined : cpuLoad,
+      uptime: uptime || undefined,
+      lastHeartbeat: Date.now(),
+    });
 
     return res.json({
       status: "ok",
-      nasId,
+      nasId: effectiveNasId,
       receivedAt: new Date().toISOString(),
       message: "Heartbeat router MikroTik berhasil diterima secara realtime",
     });
+  });
+
+  // Probe VPN Server & RADIUS Gateway connectivity
+  app.post("/api/mikrotik/probe-vpn", async (req, res) => {
+    try {
+      const { vpnHost = '103.49.239.150', vpnPort = 443, radiusHost = '103.49.239.150', radiusPort = 1812 } = req.body || {};
+      
+      const [vpnProbe, radiusProbe] = await Promise.all([
+        probeHostPort(vpnHost, Number(vpnPort), 3000),
+        probeHostPort(radiusHost, Number(radiusPort), 3000),
+      ]);
+
+      return res.json({
+        success: true,
+        vpnGateway: {
+          host: vpnHost,
+          port: vpnPort,
+          online: vpnProbe.online,
+          latency: vpnProbe.latencyMs ? `${vpnProbe.latencyMs} ms` : null,
+          error: vpnProbe.error,
+        },
+        radiusServer: {
+          host: radiusHost,
+          port: radiusPort,
+          online: radiusProbe.online,
+          latency: radiusProbe.latencyMs ? `${radiusProbe.latencyMs} ms` : null,
+          error: radiusProbe.error,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // Save active runtime SMTP settings

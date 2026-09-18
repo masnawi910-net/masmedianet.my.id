@@ -904,7 +904,7 @@ export const PPPDHCPView: React.FC = () => {
                   <input
                     type="text"
                     readOnly
-                    value={radiusServerConfig?.serverIp || '103.116.83.83'}
+                    value={radiusServerConfig?.serverIp || '103.49.239.150'}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold"
                   />
                 </div>
@@ -964,7 +964,7 @@ export const PPPDHCPView: React.FC = () => {
                     <input
                       type="text"
                       readOnly
-                      value="103.116.83.82/32"
+                      value="103.49.239.150/32"
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold"
                     />
                   </div>
@@ -1028,7 +1028,7 @@ export const PPPDHCPView: React.FC = () => {
                 {pppRouterOsVersion === 'v7' ? (
 `# 1. Pendaftaran RADIUS Server MikroTik RouterOS v7
 /radius
-add address=${radiusServerConfig?.serverIp || '103.116.83.83'} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret="${radiusServerConfig?.secretKey || 'Server@123'}"
+add address=${radiusServerConfig?.serverIp || '103.49.239.150'} require-message-auth=no service=ppp,hotspot,dhcp timeout=2s secret="${radiusServerConfig?.secretKey || 'Server@123'}"
 
 # 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
 /radius incoming
@@ -1041,13 +1041,13 @@ set use-radius=yes interim-update=1m accounting=yes
 # 4. Aktifkan Monitoring SNMP (Community: Masmedia)
 /snmp community
 set [ find default=yes ] disabled=yes
-add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+add addresses=103.49.239.150/32 name=Masmedia write-access=yes read-access=yes
 /snmp
 set enabled=yes`
                 ) : (
 `# 1. Pendaftaran RADIUS Server MikroTik RouterOS v6
 /radius
-add address=${radiusServerConfig?.serverIp || '103.116.83.83'} secret="${radiusServerConfig?.secretKey || 'Server@123'}" service=ppp,hotspot,dhcp timeout=2000ms
+add address=${radiusServerConfig?.serverIp || '103.49.239.150'} secret="${radiusServerConfig?.secretKey || 'Server@123'}" service=ppp,hotspot,dhcp timeout=2000ms
 
 # 2. Aktifkan Incoming Request CoA / Disconnect (Port 3799)
 /radius incoming
@@ -1060,7 +1060,7 @@ set use-radius=yes interim-update=1m accounting=yes
 # 4. Aktifkan Monitoring SNMP (Community: Masmedia)
 /snmp community
 set [ find default=yes ] disabled=yes
-add addresses=103.116.83.82/32 name=Masmedia write-access=yes read-access=yes
+add addresses=103.49.239.150/32 name=Masmedia write-access=yes read-access=yes
 /snmp
 set enabled=yes`
                 )}

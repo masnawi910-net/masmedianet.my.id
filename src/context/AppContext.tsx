@@ -420,7 +420,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.filter(c => c.username !== 'ahmad.fauzi' && c.username !== 'siti.rahma');
+          return parsed;
         }
       } catch (e) {
         console.error(e);
@@ -451,7 +451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.filter(inv => inv.id !== 'INV-202608-0001');
+          return parsed;
         }
       } catch (e) {
         console.error(e);
@@ -471,7 +471,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.filter(s => s.username !== 'ahmad.fauzi' && s.username !== 'siti.rahma');
+          return parsed;
         }
       } catch (e) {
         console.error(e);
@@ -494,13 +494,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.PAYMENT);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        if (parsed?.autoMutationConfig?.webhookLogs) {
-          parsed.autoMutationConfig.webhookLogs = parsed.autoMutationConfig.webhookLogs.filter(
-            (log: any) => !log.id?.startsWith('LOG-MUT-0')
-          );
-        }
-        return parsed;
+        return JSON.parse(saved);
       } catch (e) {
         console.error(e);
       }
